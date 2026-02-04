@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OpcUaNodesetExporter/OpcUaNodesetExporter.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpcUaNodesetExporter.AppHost/OpcUaNodesetExporter.AppHost.csproj" />
+    <Project Path="tests/OpcUaNodesetExporter.Tests/OpcUaNodesetExporter.Tests.csproj" />
+  </Folder>
+</Solution>
