@@ -219,7 +219,7 @@ public class OpcUaClientBuilder
         };
 
         // Validate and update configuration
-        await config.Validate(ApplicationType.Client).ConfigureAwait(false);
+        await config.ValidateAsync(ApplicationType.Client).ConfigureAwait(false);
 
         // Get or create application certificate
         if (_clientCertificate == null && _securityMode != MessageSecurityMode.None)
@@ -302,8 +302,12 @@ public class OpcUaClientBuilder
         ApplicationConfiguration config,
         CancellationToken cancellationToken)
     {
-        // Discover endpoints
-        var selectedEndpoint = CoreClientUtils.SelectEndpoint(config, _endpoint, _securityMode != MessageSecurityMode.None);
+        // Discover endpoints using async endpoint selection
+        var endpointUrl = new Uri(_endpoint);
+        var endpointCollection = await DiscoverEndpointsAsync(config, endpointUrl, cancellationToken).ConfigureAwait(false);
+
+        // Select the best matching endpoint
+        var selectedEndpoint = SelectBestEndpoint(endpointCollection);
 
         // Apply security settings if specified
         if (_securityMode != MessageSecurityMode.None)
@@ -318,7 +322,9 @@ public class OpcUaClientBuilder
         // Create user identity
         var userIdentity = CreateUserIdentity();
 
-        // Create session
+        // Create session using session factory
+        // Note: Using legacy Session.Create API - new ISessionFactory API has different signature requirements
+#pragma warning disable CS0618 // Type or member is obsolete
         var session = await Session.Create(
             config,
             endpoint,
@@ -329,11 +335,61 @@ public class OpcUaClientBuilder
             userIdentity,
             null,
             cancellationToken).ConfigureAwait(false);
+#pragma warning restore CS0618
 
         _logger.LogInformation("Connected to {Endpoint}. Session ID: {SessionId}",
             _endpoint, session.SessionId);
 
         return session;
+    }
+
+    private async Task<EndpointDescriptionCollection> DiscoverEndpointsAsync(
+        ApplicationConfiguration config,
+        Uri endpointUrl,
+        CancellationToken cancellationToken)
+    {
+        // Create discovery client with endpoint configuration
+        var endpointConfiguration = EndpointConfiguration.Create(config);
+
+        // Note: Using legacy DiscoveryClient.Create API - new async API has different signature requirements
+#pragma warning disable CS0618 // Type or member is obsolete
+        using var discoveryClient = DiscoveryClient.Create(endpointUrl, endpointConfiguration);
+#pragma warning restore CS0618
+
+        // Get endpoints from server
+        var endpoints = await discoveryClient.GetEndpointsAsync(null, cancellationToken).ConfigureAwait(false);
+
+        return endpoints;
+    }
+
+    private EndpointDescription SelectBestEndpoint(EndpointDescriptionCollection endpoints)
+    {
+        // First try to find an endpoint matching the requested security mode
+        var matchingEndpoint = endpoints.FirstOrDefault(e =>
+            e.SecurityMode == _securityMode &&
+            (_securityPolicy == SecurityPolicies.None || e.SecurityPolicyUri == _securityPolicy));
+
+        if (matchingEndpoint != null)
+        {
+            return matchingEndpoint;
+        }
+
+        // If no match found, try to find any endpoint with the requested security mode
+        matchingEndpoint = endpoints.FirstOrDefault(e => e.SecurityMode == _securityMode);
+
+        if (matchingEndpoint != null)
+        {
+            return matchingEndpoint;
+        }
+
+        // Fall back to the first endpoint
+        if (endpoints.Count > 0)
+        {
+            _logger.LogWarning("No endpoint matching security requirements found. Using first available endpoint.");
+            return endpoints[0];
+        }
+
+        throw new ServiceResultException(StatusCodes.BadNoMatch, "No suitable endpoint found on server.");
     }
 
     private UserIdentity CreateUserIdentity()

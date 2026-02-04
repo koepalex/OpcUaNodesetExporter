@@ -126,7 +126,7 @@ public class CertificateManager
         };
 
         // Try to find existing certificate
-        var existingCert = await certificateIdentifier.Find(true).ConfigureAwait(false);
+        var existingCert = await certificateIdentifier.FindAsync().ConfigureAwait(false);
         if (existingCert != null)
         {
             _logger.LogDebug("Found existing application certificate: {Thumbprint}", existingCert.Thumbprint);
