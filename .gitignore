@@ -52,3 +52,8 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Aspire export folder
+tests/OpcUaNodesetExporter.AppHost/export/.vs/
+.vs/
+tests/OpcUaNodesetExporter.AppHost/export/
