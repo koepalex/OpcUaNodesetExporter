@@ -29,7 +29,7 @@
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client.ComplexTypes" Version="1.5.378.*" />
 
     <!-- CLI -->
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="System.CommandLine" Version="2.0.2" />
 
     <!-- Logging -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.*" />
