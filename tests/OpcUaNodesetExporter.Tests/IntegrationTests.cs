@@ -18,6 +18,9 @@ public class IntegrationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // Allow unsecured transport for testing
+        Environment.SetEnvironmentVariable("ASPIRE_ALLOW_UNSECURED_TRANSPORT", "true");
+
         var appHost = await DistributedApplicationTestingBuilder
             .CreateAsync<Projects.OpcUaNodesetExporter_AppHost>();
 
