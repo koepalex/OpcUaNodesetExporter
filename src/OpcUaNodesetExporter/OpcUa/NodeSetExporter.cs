@@ -323,19 +323,36 @@ public class NodeSetExporter
 
     /// <summary>
     /// Converts an INode to a UANode for export.
+    /// Handles both typed nodes (ObjectNode, VariableNode, etc.) and base Node types.
     /// </summary>
     private static UANode? ConvertToUANode(ISession session, INode node)
     {
         UANode? uaNode = node.NodeClass switch
         {
-            NodeClass.Object => ConvertObjectNode(session, (ObjectNode)node),
-            NodeClass.Variable => ConvertVariableNode(session, (VariableNode)node),
-            NodeClass.Method => ConvertMethodNode(session, (MethodNode)node),
-            NodeClass.ObjectType => ConvertObjectTypeNode(session, (ObjectTypeNode)node),
-            NodeClass.VariableType => ConvertVariableTypeNode(session, (VariableTypeNode)node),
-            NodeClass.ReferenceType => ConvertReferenceTypeNode(session, (ReferenceTypeNode)node),
-            NodeClass.DataType => ConvertDataTypeNode(session, (DataTypeNode)node),
-            NodeClass.View => ConvertViewNode(session, (ViewNode)node),
+            NodeClass.Object => node is ObjectNode objectNode
+                ? ConvertObjectNode(session, objectNode)
+                : ConvertObjectNodeFromBase(session, node),
+            NodeClass.Variable => node is VariableNode variableNode
+                ? ConvertVariableNode(session, variableNode)
+                : ConvertVariableNodeFromBase(session, node),
+            NodeClass.Method => node is MethodNode methodNode
+                ? ConvertMethodNode(session, methodNode)
+                : ConvertMethodNodeFromBase(session, node),
+            NodeClass.ObjectType => node is ObjectTypeNode objectTypeNode
+                ? ConvertObjectTypeNode(session, objectTypeNode)
+                : ConvertObjectTypeNodeFromBase(session, node),
+            NodeClass.VariableType => node is VariableTypeNode variableTypeNode
+                ? ConvertVariableTypeNode(session, variableTypeNode)
+                : ConvertVariableTypeNodeFromBase(session, node),
+            NodeClass.ReferenceType => node is ReferenceTypeNode referenceTypeNode
+                ? ConvertReferenceTypeNode(session, referenceTypeNode)
+                : ConvertReferenceTypeNodeFromBase(session, node),
+            NodeClass.DataType => node is DataTypeNode dataTypeNode
+                ? ConvertDataTypeNode(session, dataTypeNode)
+                : ConvertDataTypeNodeFromBase(session, node),
+            NodeClass.View => node is ViewNode viewNode
+                ? ConvertViewNode(session, viewNode)
+                : ConvertViewNodeFromBase(session, node),
             _ => null
         };
 
@@ -459,6 +476,115 @@ public class NodeSetExporter
             ContainsNoLoops = node.ContainsNoLoops,
             EventNotifier = node.EventNotifier,
             References = GetReferences(session, node)
+        };
+    }
+
+    // Fallback methods for when nodes are returned as base INode type instead of typed nodes
+
+    private static UAObject ConvertObjectNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAObject
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null,
+            ParentNodeId = baseNode != null ? GetNodeIdString(session, FindParentNodeId(baseNode)) : null
+        };
+    }
+
+    private static UAVariable ConvertVariableNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAVariable
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null,
+            ParentNodeId = baseNode != null ? GetNodeIdString(session, FindParentNodeId(baseNode)) : null
+        };
+    }
+
+    private static UAMethod ConvertMethodNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAMethod
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null,
+            ParentNodeId = baseNode != null ? GetNodeIdString(session, FindParentNodeId(baseNode)) : null
+        };
+    }
+
+    private static UAObjectType ConvertObjectTypeNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAObjectType
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null
+        };
+    }
+
+    private static UAVariableType ConvertVariableTypeNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAVariableType
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null
+        };
+    }
+
+    private static UAReferenceType ConvertReferenceTypeNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAReferenceType
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null
+        };
+    }
+
+    private static UADataType ConvertDataTypeNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UADataType
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null
+        };
+    }
+
+    private static UAView ConvertViewNodeFromBase(ISession session, INode node)
+    {
+        var baseNode = node as Node;
+        return new UAView
+        {
+            NodeId = GetNodeIdString(session, node.NodeId),
+            BrowseName = GetQualifiedNameString(session, node.BrowseName),
+            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
+            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
+            References = baseNode != null ? GetReferences(session, baseNode) : null
         };
     }
 

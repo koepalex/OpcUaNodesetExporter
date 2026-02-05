@@ -1,27 +1,57 @@
+using Aspire.Hosting;
+using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OpcUaNodesetExporter.OpcUa;
-using OpcUaNodesetExporter.Configuration;
 
 namespace OpcUaNodesetExporter.Tests;
 
 /// <summary>
-/// Integration tests that require an OPC UA server.
-/// Set OPCUA_TEST_ENDPOINT environment variable to enable these tests.
+/// Integration tests that use .NET Aspire to spin up the OPC UA server container.
 /// </summary>
 [Trait("Category", "Integration")]
-public class IntegrationTests
+public class IntegrationTests : IAsyncLifetime
 {
-    private readonly string? _opcUaEndpoint;
+    private DistributedApplication? _app;
+    private string? _opcUaEndpoint;
 
-    public IntegrationTests()
+    public async Task InitializeAsync()
     {
-        _opcUaEndpoint = Environment.GetEnvironmentVariable("OPCUA_TEST_ENDPOINT");
+        var appHost = await DistributedApplicationTestingBuilder
+            .CreateAsync<Projects.OpcUaNodesetExporter_AppHost>();
+
+        // Don't start the exporter project - we just want the OPC UA server container
+        appHost.Services.ConfigureHttpClientDefaults(clientBuilder =>
+        {
+            clientBuilder.AddStandardResilienceHandler();
+        });
+
+        _app = await appHost.BuildAsync();
+        await _app.StartAsync();
+
+        // Wait for the OPC UA server container to be running
+        await _app.ResourceNotifications.WaitForResourceAsync(
+            "opcplc",
+            KnownResourceStates.Running);
+
+        // Get the OPC UA endpoint URL
+        var endpoint = _app.GetEndpoint("opcplc", "opcua");
+        _opcUaEndpoint = endpoint.ToString();
     }
 
-    [SkippableFact]
+    public async Task DisposeAsync()
+    {
+        if (_app is not null)
+        {
+            await _app.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task CanConnectToOpcUaServer()
     {
-        Skip.If(string.IsNullOrEmpty(_opcUaEndpoint), "OPCUA_TEST_ENDPOINT not set");
+        Assert.NotNull(_opcUaEndpoint);
 
         // Arrange
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -32,7 +62,7 @@ public class IntegrationTests
 
         var options = new OpcUaClientOptions
         {
-            Endpoint = _opcUaEndpoint!,
+            Endpoint = _opcUaEndpoint,
             RetryCount = 3,
             RetryDelaySeconds = 5
         };
@@ -48,10 +78,10 @@ public class IntegrationTests
         Assert.True(client.IsConnected);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task CanExportNamespaces()
     {
-        Skip.If(string.IsNullOrEmpty(_opcUaEndpoint), "OPCUA_TEST_ENDPOINT not set");
+        Assert.NotNull(_opcUaEndpoint);
 
         // Arrange
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -67,7 +97,7 @@ public class IntegrationTests
         {
             var options = new OpcUaClientOptions
             {
-                Endpoint = _opcUaEndpoint!,
+                Endpoint = _opcUaEndpoint,
                 OutputDirectory = tempDir,
                 RetryCount = 3,
                 RetryDelaySeconds = 5
