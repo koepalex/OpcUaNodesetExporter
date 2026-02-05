@@ -272,6 +272,7 @@ public class ExportCommand : RootCommand
             // Export namespaces
             var exporter = new NodeSetExporter(
                 loggerFactory.CreateLogger<NodeSetExporter>(),
+                loggerFactory,
                 client,
                 options.Verbose);
 

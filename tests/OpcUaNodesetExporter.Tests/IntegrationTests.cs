@@ -115,6 +115,7 @@ public class IntegrationTests : IAsyncLifetime
 
             var exporter = new NodeSetExporter(
                 loggerFactory.CreateLogger<NodeSetExporter>(),
+                loggerFactory,
                 client,
                 verbose: true);
 

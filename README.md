@@ -268,4 +268,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - Built on the [OPC Foundation UA .NET Standard](https://github.com/OPCFoundation/UA-.NETStandard) stack
-- Reference implementation based on [ClientSamples.ExportNodesToNodeSet2PerNamespaceAsync](https://github.com/OPCFoundation/UA-.NETStandard/blob/master/Applications/ConsoleReferenceClient/ClientSamples.cs)
+- Uses the SDK's verified `CoreClientUtils.ExportNodesToNodeSet2` for NodeSet2 export functionality

@@ -3,20 +3,19 @@ using Microsoft.Extensions.Logging;
 using Opc.Ua;
 using Opc.Ua.Client;
 using Opc.Ua.Client.ComplexTypes;
-using Opc.Ua.Export;
-using ExportLocalizedText = Opc.Ua.Export.LocalizedText;
 
 namespace OpcUaNodesetExporter.OpcUa;
 
 /// <summary>
 /// Exports OPC UA nodes to NodeSet2 XML files, grouped by namespace.
-/// Based on the OPC Foundation reference implementation (ClientSamples.ExportNodesToNodeSet2PerNamespaceAsync).
+/// Uses the OPC Foundation SDK's CoreClientUtils.ExportNodesToNodeSet2 for verified export functionality.
 /// </summary>
 public class NodeSetExporter
 {
     private const int MaxSearchDepth = 128;
 
     private readonly ILogger<NodeSetExporter> _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly OpcUaClient _client;
     private readonly bool _verbose;
 
@@ -24,11 +23,13 @@ public class NodeSetExporter
     /// Creates a new NodeSetExporter instance.
     /// </summary>
     /// <param name="logger">Logger instance.</param>
+    /// <param name="loggerFactory">Logger factory for creating SDK telemetry context.</param>
     /// <param name="client">Connected OPC UA client.</param>
     /// <param name="verbose">Enable verbose output.</param>
-    public NodeSetExporter(ILogger<NodeSetExporter> logger, OpcUaClient client, bool verbose = false)
+    public NodeSetExporter(ILogger<NodeSetExporter> logger, ILoggerFactory loggerFactory, OpcUaClient client, bool verbose = false)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _verbose = verbose;
     }
@@ -283,374 +284,37 @@ public class NodeSetExporter
     }
 
     /// <summary>
-    /// Exports nodes to a single NodeSet2 XML file.
+    /// Exports nodes to a single NodeSet2 XML file using the OPC Foundation SDK.
     /// </summary>
     private void ExportNodesToNodeSet2File(ISession session, IList<INode> nodes, string filePath)
     {
         using var outputStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
 
-        var nodeSet = new UANodeSet();
+        // Create telemetry context from the logger factory
+        var telemetryContext = new LoggerFactoryTelemetryContext(_loggerFactory);
 
-        // Set up namespace table
-        nodeSet.NamespaceUris = session.NamespaceUris.ToArray()
-            .Skip(1) // Skip the OPC UA namespace (index 0)
-            .ToArray();
-
-        // Set up server URIs
-        nodeSet.ServerUris = session.ServerUris.ToArray();
-
-        // Convert nodes to UANode objects
-        var uaNodes = new List<UANode>();
-        foreach (var node in nodes)
+        // Create system context with namespace information from the session
+        var systemContext = new SystemContext(telemetryContext)
         {
-            var uaNode = ConvertToUANode(session, node);
-            if (uaNode != null)
-            {
-                uaNodes.Add(uaNode);
-            }
-        }
+            NamespaceUris = session.NamespaceUris,
+            ServerUris = session.ServerUris
+        };
 
-        nodeSet.Items = uaNodes.ToArray();
-        nodeSet.LastModified = DateTime.UtcNow;
-        nodeSet.LastModifiedSpecified = true;
+        // Use the OPC Foundation SDK's verified export functionality
+        CoreClientUtils.ExportNodesToNodeSet2(systemContext, nodes, outputStream);
 
-        // Serialize to XML
-        var serializer = new System.Xml.Serialization.XmlSerializer(typeof(UANodeSet));
-        serializer.Serialize(outputStream, nodeSet);
-
-        _logger.LogDebug("Exported {Count} nodes to {FilePath}", uaNodes.Count, filePath);
+        _logger.LogDebug("Exported {Count} nodes to {FilePath}", nodes.Count, filePath);
     }
 
     /// <summary>
-    /// Converts an INode to a UANode for export.
-    /// Handles both typed nodes (ObjectNode, VariableNode, etc.) and base Node types.
+    /// A telemetry context implementation that wraps an existing ILoggerFactory.
     /// </summary>
-    private static UANode? ConvertToUANode(ISession session, INode node)
+    private sealed class LoggerFactoryTelemetryContext : TelemetryContextBase
     {
-        UANode? uaNode = node.NodeClass switch
+        public LoggerFactoryTelemetryContext(ILoggerFactory loggerFactory)
+            : base(loggerFactory)
         {
-            NodeClass.Object => node is ObjectNode objectNode
-                ? ConvertObjectNode(session, objectNode)
-                : ConvertObjectNodeFromBase(session, node),
-            NodeClass.Variable => node is VariableNode variableNode
-                ? ConvertVariableNode(session, variableNode)
-                : ConvertVariableNodeFromBase(session, node),
-            NodeClass.Method => node is MethodNode methodNode
-                ? ConvertMethodNode(session, methodNode)
-                : ConvertMethodNodeFromBase(session, node),
-            NodeClass.ObjectType => node is ObjectTypeNode objectTypeNode
-                ? ConvertObjectTypeNode(session, objectTypeNode)
-                : ConvertObjectTypeNodeFromBase(session, node),
-            NodeClass.VariableType => node is VariableTypeNode variableTypeNode
-                ? ConvertVariableTypeNode(session, variableTypeNode)
-                : ConvertVariableTypeNodeFromBase(session, node),
-            NodeClass.ReferenceType => node is ReferenceTypeNode referenceTypeNode
-                ? ConvertReferenceTypeNode(session, referenceTypeNode)
-                : ConvertReferenceTypeNodeFromBase(session, node),
-            NodeClass.DataType => node is DataTypeNode dataTypeNode
-                ? ConvertDataTypeNode(session, dataTypeNode)
-                : ConvertDataTypeNodeFromBase(session, node),
-            NodeClass.View => node is ViewNode viewNode
-                ? ConvertViewNode(session, viewNode)
-                : ConvertViewNodeFromBase(session, node),
-            _ => null
-        };
-
-        return uaNode;
-    }
-
-    private static UAObject ConvertObjectNode(ISession session, ObjectNode node)
-    {
-        return new UAObject
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            EventNotifier = node.EventNotifier,
-            References = GetReferences(session, node),
-            ParentNodeId = GetNodeIdString(session, FindParentNodeId(node))
-        };
-    }
-
-    private static UAVariable ConvertVariableNode(ISession session, VariableNode node)
-    {
-        return new UAVariable
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            DataType = GetNodeIdString(session, node.DataType),
-            ValueRank = node.ValueRank,
-            ArrayDimensions = node.ArrayDimensions != null ? string.Join(",", node.ArrayDimensions) : null,
-            AccessLevel = node.AccessLevel,
-            UserAccessLevel = node.UserAccessLevel,
-            MinimumSamplingInterval = node.MinimumSamplingInterval,
-            Historizing = node.Historizing,
-            References = GetReferences(session, node),
-            ParentNodeId = GetNodeIdString(session, FindParentNodeId(node))
-        };
-    }
-
-    private static UAMethod ConvertMethodNode(ISession session, MethodNode node)
-    {
-        return new UAMethod
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            Executable = node.Executable,
-            UserExecutable = node.UserExecutable,
-            References = GetReferences(session, node),
-            ParentNodeId = GetNodeIdString(session, FindParentNodeId(node))
-        };
-    }
-
-    private static UAObjectType ConvertObjectTypeNode(ISession session, ObjectTypeNode node)
-    {
-        return new UAObjectType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            IsAbstract = node.IsAbstract,
-            References = GetReferences(session, node)
-        };
-    }
-
-    private static UAVariableType ConvertVariableTypeNode(ISession session, VariableTypeNode node)
-    {
-        return new UAVariableType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            IsAbstract = node.IsAbstract,
-            DataType = GetNodeIdString(session, node.DataType),
-            ValueRank = node.ValueRank,
-            ArrayDimensions = node.ArrayDimensions != null ? string.Join(",", node.ArrayDimensions) : null,
-            References = GetReferences(session, node)
-        };
-    }
-
-    private static UAReferenceType ConvertReferenceTypeNode(ISession session, ReferenceTypeNode node)
-    {
-        return new UAReferenceType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            IsAbstract = node.IsAbstract,
-            Symmetric = node.Symmetric,
-            InverseName = node.InverseName != null ? new[] { new ExportLocalizedText { Value = node.InverseName.Text } } : null,
-            References = GetReferences(session, node)
-        };
-    }
-
-    private static UADataType ConvertDataTypeNode(ISession session, DataTypeNode node)
-    {
-        return new UADataType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            IsAbstract = node.IsAbstract,
-            References = GetReferences(session, node)
-        };
-    }
-
-    private static UAView ConvertViewNode(ISession session, ViewNode node)
-    {
-        return new UAView
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = node.Description != null ? new[] { new ExportLocalizedText { Value = node.Description.Text } } : null,
-            ContainsNoLoops = node.ContainsNoLoops,
-            EventNotifier = node.EventNotifier,
-            References = GetReferences(session, node)
-        };
-    }
-
-    // Fallback methods for when nodes are returned as base INode type instead of typed nodes
-
-    private static UAObject ConvertObjectNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAObject
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null,
-            ParentNodeId = baseNode != null ? GetNodeIdString(session, FindParentNodeId(baseNode)) : null
-        };
-    }
-
-    private static UAVariable ConvertVariableNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAVariable
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null,
-            ParentNodeId = baseNode != null ? GetNodeIdString(session, FindParentNodeId(baseNode)) : null
-        };
-    }
-
-    private static UAMethod ConvertMethodNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAMethod
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null,
-            ParentNodeId = baseNode != null ? GetNodeIdString(session, FindParentNodeId(baseNode)) : null
-        };
-    }
-
-    private static UAObjectType ConvertObjectTypeNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAObjectType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null
-        };
-    }
-
-    private static UAVariableType ConvertVariableTypeNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAVariableType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null
-        };
-    }
-
-    private static UAReferenceType ConvertReferenceTypeNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAReferenceType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null
-        };
-    }
-
-    private static UADataType ConvertDataTypeNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UADataType
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null
-        };
-    }
-
-    private static UAView ConvertViewNodeFromBase(ISession session, INode node)
-    {
-        var baseNode = node as Node;
-        return new UAView
-        {
-            NodeId = GetNodeIdString(session, node.NodeId),
-            BrowseName = GetQualifiedNameString(session, node.BrowseName),
-            DisplayName = new[] { new ExportLocalizedText { Value = node.DisplayName?.Text } },
-            Description = baseNode?.Description != null ? new[] { new ExportLocalizedText { Value = baseNode.Description.Text } } : null,
-            References = baseNode != null ? GetReferences(session, baseNode) : null
-        };
-    }
-
-    private static string GetNodeIdString(ISession session, NodeId? nodeId)
-    {
-        if (nodeId == null || nodeId.IsNullNodeId)
-            return string.Empty;
-
-        return nodeId.ToString();
-    }
-
-    private static string GetNodeIdString(ISession session, ExpandedNodeId? nodeId)
-    {
-        if (nodeId == null || nodeId.IsNull)
-            return string.Empty;
-
-        var localNodeId = ExpandedNodeId.ToNodeId(nodeId, session.NamespaceUris);
-        return localNodeId?.ToString() ?? nodeId.ToString();
-    }
-
-    private static string GetQualifiedNameString(ISession session, QualifiedName? qualifiedName)
-    {
-        if (qualifiedName == null || QualifiedName.IsNull(qualifiedName))
-            return string.Empty;
-
-        return qualifiedName.ToString();
-    }
-
-    private static Reference[]? GetReferences(ISession session, Node node)
-    {
-        if (node.ReferenceTable == null || node.ReferenceTable.Count == 0)
-            return null;
-
-        var references = new List<Reference>();
-        foreach (var reference in node.ReferenceTable)
-        {
-            references.Add(new Reference
-            {
-                ReferenceType = GetNodeIdString(session, reference.ReferenceTypeId),
-                IsForward = !reference.IsInverse,
-                Value = GetNodeIdString(session, reference.TargetId)
-            });
         }
-
-        return references.Count > 0 ? references.ToArray() : null;
-    }
-
-    private static NodeId? FindParentNodeId(Node node)
-    {
-        if (node.ReferenceTable == null)
-            return null;
-
-        // Find inverse hierarchical reference (parent)
-        var parentRef = node.ReferenceTable
-            .FirstOrDefault(r => r.IsInverse &&
-                (r.ReferenceTypeId == ReferenceTypeIds.HasComponent ||
-                 r.ReferenceTypeId == ReferenceTypeIds.HasProperty ||
-                 r.ReferenceTypeId == ReferenceTypeIds.Organizes ||
-                 r.ReferenceTypeId == ReferenceTypeIds.HasSubtype));
-
-        if (parentRef != null)
-        {
-            return ExpandedNodeId.ToNodeId(parentRef.TargetId, null);
-        }
-
-        return null;
     }
 
     /// <summary>
