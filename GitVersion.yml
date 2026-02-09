@@ -14,6 +14,7 @@ branches:
 
   main:
     regex: ^(main|master)$
+    mode: ManualDeployment
     label: ''
     increment: Patch
     is-main-branch: true
