@@ -22,6 +22,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Normalize Git state for GitVersion
+        run: |
+          # If running from a tag or detached HEAD, create a temporary branch for GitVersion
+          if git symbolic-ref HEAD >/dev/null 2>&1; then
+            echo "Already on a branch"
+          else
+            echo "Detached HEAD detected, checking out main branch"
+            git checkout main
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -37,6 +47,8 @@ jobs:
         uses: gittools/actions/gitversion/execute@v3.2.1
         with:
           useConfigFile: true
+          overrideConfig: |
+            update-build-number: false
 
       - name: Restore dependencies
         run: dotnet restore
