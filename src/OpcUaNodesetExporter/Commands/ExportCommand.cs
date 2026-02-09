@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using Opc.Ua;
@@ -17,118 +18,151 @@ public class ExportCommand : RootCommand
     {
         // Required options
         var endpointOption = new Option<string?>(
-            aliases: ["--endpoint", "-e"],
-            description: "OPC UA server endpoint URL (e.g., opc.tcp://localhost:4840)")
+            name: "--endpoint",
+            aliases: new[] { "-e" })
         {
-            IsRequired = false // Can come from environment variable
+            Description = "OPC UA server endpoint URL (e.g., opc.tcp://localhost:4840)",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.Endpoint)
         };
-        endpointOption.SetDefaultValueFactory(() => EnvironmentVariables.GetValue(EnvironmentVariables.Endpoint));
 
         // Security options
         var securityModeOption = new Option<string>(
-            aliases: ["--security-mode", "-m"],
-            description: "Security mode: None, Sign, SignAndEncrypt",
-            getDefaultValue: () => "None");
+            name: "--security-mode",
+            aliases: new[] { "-m" })
+        {
+            Description = "Security mode: None, Sign, SignAndEncrypt",
+            DefaultValueFactory = (_) => "None"
+        };
 
         var securityPolicyOption = new Option<string>(
-            aliases: ["--security-policy", "-p"],
-            description: "Security policy: None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss",
-            getDefaultValue: () => "None");
+            name: "--security-policy",
+            aliases: new[] { "-p" })
+        {
+            Description = "Security policy: None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss",
+            DefaultValueFactory = (_) => "None"
+        };
 
         // Authentication options
         var authModeOption = new Option<string>(
-            aliases: ["--auth-mode", "-a"],
-            description: "Authentication mode: Anonymous, UserName, Certificate",
-            getDefaultValue: () => "Anonymous");
+            name: "--auth-mode",
+            aliases: new[] { "-a" })
+        {
+            Description = "Authentication mode: Anonymous, UserName, Certificate",
+            DefaultValueFactory = (_) => "Anonymous"
+        };
 
         var usernameOption = new Option<string?>(
-            aliases: ["--username", "-u"],
-            description: "Username for UserName authentication");
-        usernameOption.SetDefaultValueFactory(() => EnvironmentVariables.GetValue(EnvironmentVariables.Username));
+            name: "--username",
+            aliases: new[] { "-u" })
+        {
+            Description = "Username for UserName authentication",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.Username)
+        };
 
         var passwordOption = new Option<string?>(
-            name: "--password",
-            description: "Password for UserName authentication");
-        passwordOption.SetDefaultValueFactory(() => EnvironmentVariables.GetValue(EnvironmentVariables.Password));
+            name: "--password")
+        {
+            Description = "Password for UserName authentication",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.Password)
+        };
 
         var passwordFromStdinOption = new Option<bool>(
-            name: "--password-from-stdin",
-            description: "Read password from stdin (for piping)",
-            getDefaultValue: () => false);
+            name: "--password-from-stdin")
+        {
+            Description = "Read password from stdin (for piping)",
+            DefaultValueFactory = (_) => false
+        };
 
         // Certificate options
         var certificatePathOption = new Option<string?>(
-            aliases: ["--certificate-path", "-c"],
-            description: "Path to client X.509 certificate (PFX format)");
-        certificatePathOption.SetDefaultValueFactory(() => EnvironmentVariables.GetValue(EnvironmentVariables.CertificatePath));
+            name: "--certificate-path",
+            aliases: new[] { "-c" })
+        {
+            Description = "Path to client X.509 certificate (PFX format)",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.CertificatePath)
+        };
 
         var certificatePasswordOption = new Option<string?>(
-            name: "--certificate-password",
-            description: "Password for the client certificate");
-        certificatePasswordOption.SetDefaultValueFactory(() => EnvironmentVariables.GetValue(EnvironmentVariables.CertificatePassword));
+            name: "--certificate-password")
+        {
+            Description = "Password for the client certificate",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.CertificatePassword)
+        };
 
         var certificateFromStdinOption = new Option<bool>(
-            name: "--certificate-from-stdin",
-            description: "Read certificate (base64 PFX) from stdin",
-            getDefaultValue: () => false);
+            name: "--certificate-from-stdin")
+        {
+            Description = "Read certificate (base64 PFX) from stdin",
+            DefaultValueFactory = (_) => false
+        };
 
         // Output options
         var outputOption = new Option<string>(
-            aliases: ["--output", "-o"],
-            description: "Output directory for NodeSet2 XML files",
-            getDefaultValue: () => "./output");
+            name: "--output",
+            aliases: new[] { "-o" })
+        {
+            Description = "Output directory for NodeSet2 XML files",
+            DefaultValueFactory = (_) => "./output"
+        };
 
         // Retry options
         var retryCountOption = new Option<int>(
-            name: "--retry-count",
-            description: "Number of reconnection attempts on disconnect",
-            getDefaultValue: () => 3);
+            name: "--retry-count")
+        {
+            Description = "Number of reconnection attempts on disconnect",
+            DefaultValueFactory = (_) => 3
+        };
 
         var retryDelayOption = new Option<int>(
-            name: "--retry-delay",
-            description: "Delay between retries in seconds",
-            getDefaultValue: () => 5);
+            name: "--retry-delay")
+        {
+            Description = "Delay between retries in seconds",
+            DefaultValueFactory = (_) => 5
+        };
 
         // Other options
         var verboseOption = new Option<bool>(
-            aliases: ["--verbose", "-v"],
-            description: "Enable verbose logging",
-            getDefaultValue: () => false);
+            name: "--verbose",
+            aliases: new[] { "-v" })
+        {
+            Description = "Enable verbose logging",
+            DefaultValueFactory = (_) => false
+        };
 
         // Add all options
-        AddOption(endpointOption);
-        AddOption(securityModeOption);
-        AddOption(securityPolicyOption);
-        AddOption(authModeOption);
-        AddOption(usernameOption);
-        AddOption(passwordOption);
-        AddOption(passwordFromStdinOption);
-        AddOption(certificatePathOption);
-        AddOption(certificatePasswordOption);
-        AddOption(certificateFromStdinOption);
-        AddOption(outputOption);
-        AddOption(retryCountOption);
-        AddOption(retryDelayOption);
-        AddOption(verboseOption);
+        Options.Add(endpointOption);
+        Options.Add(securityModeOption);
+        Options.Add(securityPolicyOption);
+        Options.Add(authModeOption);
+        Options.Add(usernameOption);
+        Options.Add(passwordOption);
+        Options.Add(passwordFromStdinOption);
+        Options.Add(certificatePathOption);
+        Options.Add(certificatePasswordOption);
+        Options.Add(certificateFromStdinOption);
+        Options.Add(outputOption);
+        Options.Add(retryCountOption);
+        Options.Add(retryDelayOption);
+        Options.Add(verboseOption);
 
-        this.SetHandler(async (context) =>
+        this.SetAction(async (parseResult, cancellationToken) =>
         {
-            var endpoint = context.ParseResult.GetValueForOption(endpointOption);
-            var securityMode = context.ParseResult.GetValueForOption(securityModeOption)!;
-            var securityPolicy = context.ParseResult.GetValueForOption(securityPolicyOption)!;
-            var authMode = context.ParseResult.GetValueForOption(authModeOption)!;
-            var username = context.ParseResult.GetValueForOption(usernameOption);
-            var password = context.ParseResult.GetValueForOption(passwordOption);
-            var passwordFromStdin = context.ParseResult.GetValueForOption(passwordFromStdinOption);
-            var certificatePath = context.ParseResult.GetValueForOption(certificatePathOption);
-            var certificatePassword = context.ParseResult.GetValueForOption(certificatePasswordOption);
-            var certificateFromStdin = context.ParseResult.GetValueForOption(certificateFromStdinOption);
-            var output = context.ParseResult.GetValueForOption(outputOption)!;
-            var retryCount = context.ParseResult.GetValueForOption(retryCountOption);
-            var retryDelay = context.ParseResult.GetValueForOption(retryDelayOption);
-            var verbose = context.ParseResult.GetValueForOption(verboseOption);
+            var endpoint = parseResult.GetValue(endpointOption);
+            var securityMode = parseResult.GetValue(securityModeOption)!;
+            var securityPolicy = parseResult.GetValue(securityPolicyOption)!;
+            var authMode = parseResult.GetValue(authModeOption)!;
+            var username = parseResult.GetValue(usernameOption);
+            var password = parseResult.GetValue(passwordOption);
+            var passwordFromStdin = parseResult.GetValue(passwordFromStdinOption);
+            var certificatePath = parseResult.GetValue(certificatePathOption);
+            var certificatePassword = parseResult.GetValue(certificatePasswordOption);
+            var certificateFromStdin = parseResult.GetValue(certificateFromStdinOption);
+            var output = parseResult.GetValue(outputOption)!;
+            var retryCount = parseResult.GetValue(retryCountOption);
+            var retryDelay = parseResult.GetValue(retryDelayOption);
+            var verbose = parseResult.GetValue(verboseOption);
 
-            context.ExitCode = await ExecuteAsync(
+            return await ExecuteAsync(
                 endpoint,
                 securityMode,
                 securityPolicy,
@@ -143,7 +177,7 @@ public class ExportCommand : RootCommand
                 retryCount,
                 retryDelay,
                 verbose,
-                context.GetCancellationToken());
+                cancellationToken);
         });
     }
 

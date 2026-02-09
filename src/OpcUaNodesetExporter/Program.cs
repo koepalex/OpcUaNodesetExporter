@@ -3,4 +3,4 @@ using OpcUaNodesetExporter.Commands;
 
 // Create and invoke the export command
 var command = new ExportCommand();
-return await command.InvokeAsync(args);
+return await command.Parse(args).InvokeAsync();
