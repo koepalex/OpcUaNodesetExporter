@@ -1,6 +1,6 @@
 # OPC UA NodeSet2 Exporter
 
-[![Build and Test](https://github.com/your-org/OpcUaNodesetExporter/actions/workflows/build.yml/badge.svg)](https://github.com/your-org/OpcUaNodesetExporter/actions/workflows/build.yml)
+[![Build and Test](https://github.com/koepalex/OpcUaNodesetExporter/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/koepalex/OpcUaNodesetExporter/actions/workflows/build.yml)
 [![NuGet](https://img.shields.io/nuget/v/OpcUaNodesetExporter.svg)](https://www.nuget.org/packages/OpcUaNodesetExporter/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
