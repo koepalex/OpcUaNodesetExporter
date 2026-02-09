@@ -1,0 +1,33 @@
+workflow: GitFlow/v1
+mode: ContinuousDelivery
+tag-prefix: '[vV]?'
+
+branches:
+  release:
+    regex: ^release[/-]
+    mode: ContinuousDelivery
+    tag: ''
+    increment: None
+    source-branches: ['main', 'develop']
+    is-release-branch: true
+
+  main:
+    regex: ^(main|master)$
+    mode: ContinuousDelivery
+    tag: ''
+    increment: Patch
+    is-release-branch: true
+
+  develop:
+    regex: ^develop$
+    mode: ContinuousDeployment
+    tag: alpha
+    increment: Minor
+    source-branches: []
+
+  feature:
+    regex: ^feature[/-]
+    mode: ContinuousDeployment
+    tag: 'feature.{BranchName}'
+    increment: Inherit
+    source-branches: ['develop', 'main']
