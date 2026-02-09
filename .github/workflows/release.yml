@@ -27,9 +27,16 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Get version from tag
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3.2.1
+        with:
+          versionSpec: '6.x'
+
+      - name: Determine Version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        uses: gittools/actions/gitversion/execute@v3.2.1
+        with:
+          useConfigFile: true
 
       - name: Restore dependencies
         run: dotnet restore
@@ -41,16 +48,19 @@ jobs:
         run: dotnet test --no-build --configuration Release --verbosity normal
 
       - name: Pack
-        run: dotnet pack --no-build --configuration Release --output ./artifacts -p:PackageVersion=${{ steps.version.outputs.VERSION }}
+        run: dotnet pack --no-build --configuration Release --output ./artifacts -p:PackageVersion=${{ steps.version.outputs.semVer }}
 
       - name: Sign NuGet packages
-        if: ${{ secrets.CODE_SIGNING_CERT != '' }}
+        if: env.CODE_SIGNING_CERT != ''
+        env:
+          CODE_SIGNING_CERT: ${{ secrets.CODE_SIGNING_CERT }}
+          CODE_SIGNING_CERT_PASSWORD: ${{ secrets.CODE_SIGNING_CERT_PASSWORD }}
         run: |
-          echo "${{ secrets.CODE_SIGNING_CERT }}" | base64 -d > cert.pfx
+          echo "$CODE_SIGNING_CERT" | base64 -d > cert.pfx
           for package in ./artifacts/*.nupkg; do
             dotnet nuget sign "$package" \
               --certificate-path cert.pfx \
-              --certificate-password "${{ secrets.CODE_SIGNING_CERT_PASSWORD }}" \
+              --certificate-password "$CODE_SIGNING_CERT_PASSWORD" \
               --timestamper http://timestamp.digicert.com
           done
           rm cert.pfx
@@ -67,11 +77,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to NuGet.org
-        if: ${{ secrets.NUGET_API_KEY != '' }}
+        if: env.NUGET_API_KEY != ''
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           for package in ./artifacts/*.nupkg; do
             dotnet nuget push "$package" \
-              --api-key ${{ secrets.NUGET_API_KEY }} \
+              --api-key $NUGET_API_KEY \
               --source https://api.nuget.org/v3/index.json \
               --skip-duplicate
           done
