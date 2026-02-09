@@ -52,20 +52,20 @@ jobs:
       - name: Pack
         run: dotnet pack --no-build --configuration Release --output ./artifacts -p:PackageVersion=${{ steps.version.outputs.semVer }}
 
-      - name: Sign NuGet packages
-        if: env.CODE_SIGNING_CERT != ''
-        env:
-          CODE_SIGNING_CERT: ${{ secrets.CODE_SIGNING_CERT }}
-          CODE_SIGNING_CERT_PASSWORD: ${{ secrets.CODE_SIGNING_CERT_PASSWORD }}
-        run: |
-          echo "$CODE_SIGNING_CERT" | base64 -d > cert.pfx
-          for package in ./artifacts/*.nupkg; do
-            dotnet nuget sign "$package" \
-              --certificate-path cert.pfx \
-              --certificate-password "$CODE_SIGNING_CERT_PASSWORD" \
-              --timestamper http://timestamp.digicert.com
-          done
-          rm cert.pfx
+      # - name: Sign NuGet packages
+      #   if: env.CODE_SIGNING_CERT != ''
+      #   env:
+      #     CODE_SIGNING_CERT: ${{ secrets.CODE_SIGNING_CERT }}
+      #     CODE_SIGNING_CERT_PASSWORD: ${{ secrets.CODE_SIGNING_CERT_PASSWORD }}
+      #   run: |
+      #     echo "$CODE_SIGNING_CERT" | base64 -d > cert.pfx
+      #     for package in ./artifacts/*.nupkg; do
+      #       dotnet nuget sign "$package" \
+      #         --certificate-path cert.pfx \
+      #         --certificate-password "$CODE_SIGNING_CERT_PASSWORD" \
+      #         --timestamper http://timestamp.digicert.com
+      #     done
+      #     rm cert.pfx
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
