@@ -60,7 +60,7 @@ jobs:
         run: dotnet test --no-build --configuration Release --verbosity normal
 
       - name: Pack
-        run: dotnet pack --no-build --configuration Release --output ./artifacts -p:PackageVersion=${{ steps.version.outputs.semVer }}
+        run: dotnet pack --no-build --configuration Release --output ./artifacts -p:PackageVersion=${{ steps.version.outputs.nuGetVersionV2 }}
 
       - name: Sign NuGet packages
         if: env.CODE_SIGNING_CERT != ''
