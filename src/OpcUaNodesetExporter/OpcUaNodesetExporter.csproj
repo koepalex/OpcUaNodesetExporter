@@ -14,12 +14,12 @@
     <!-- NuGet Package Metadata -->
     <PackageId>OpcUaNodesetExporter</PackageId>
     <Version>1.0.0</Version>
-    <Authors>OpcUaNodesetExporter Contributors</Authors>
+    <Authors>Alexander Köpke</Authors>
     <Description>A .NET global tool that connects to an OPC UA server and exports all custom namespaces into separate NodeSet2 XML files.</Description>
     <PackageTags>opcua;opc-ua;nodeset2;export;industrial;iot;automation</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <RepositoryUrl>https://github.com/your-org/OpcUaNodesetExporter</RepositoryUrl>
+    <RepositoryUrl>https://github.com/koepalex/OpcUaNodesetExporter</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
