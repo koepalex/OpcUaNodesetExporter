@@ -352,6 +352,7 @@ public class OpcUaClientBuilder
 
         // Select the best matching endpoint
         var selectedEndpoint = SelectBestEndpoint(endpointCollection);
+        _logger.LogDebug("Discovered endpoint URL: {DiscoveredUrl}. User provided URL: {OriginalUrl}", selectedEndpoint.EndpointUrl, _endpoint);
 
         // If the selected endpoint requires security, ensure we have a certificate
         if (selectedEndpoint.SecurityMode != MessageSecurityMode.None && _clientCertificate == null)
