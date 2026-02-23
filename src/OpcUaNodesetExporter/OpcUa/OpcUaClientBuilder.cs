@@ -182,7 +182,7 @@ public class OpcUaClientBuilder
         var config = await BuildApplicationConfigurationAsync(certManager).ConfigureAwait(false);
 
         // Create and connect with retry logic
-        var session = await ConnectWithRetryAsync(config, cancellationToken).ConfigureAwait(false);
+        var session = await ConnectWithRetryAsync(config, certManager, cancellationToken).ConfigureAwait(false);
 
         return new OpcUaClient(session, config, _loggerFactory, _retryCount, _retryDelay);
     }
@@ -249,6 +249,7 @@ public class OpcUaClientBuilder
 
     private async Task<ISession> ConnectWithRetryAsync(
         ApplicationConfiguration config,
+        CertificateManager certManager,
         CancellationToken cancellationToken)
     {
         Exception? lastException = null;
@@ -268,7 +269,7 @@ public class OpcUaClientBuilder
                 _logger.LogInformation("Connecting to {Endpoint} (attempt {Attempt}/{Total})...",
                     _endpoint, attempt + 1, _retryCount + 1);
 
-                return await CreateSessionAsync(config, cancellationToken).ConfigureAwait(false);
+                return await CreateSessionAsync(config, certManager, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -300,6 +301,7 @@ public class OpcUaClientBuilder
 
     private async Task<ISession> CreateSessionAsync(
         ApplicationConfiguration config,
+        CertificateManager certManager,
         CancellationToken cancellationToken)
     {
         // Discover endpoints using async endpoint selection
@@ -308,6 +310,16 @@ public class OpcUaClientBuilder
 
         // Select the best matching endpoint
         var selectedEndpoint = SelectBestEndpoint(endpointCollection);
+
+        // If the selected endpoint requires security, ensure we have a certificate
+        if (selectedEndpoint.SecurityMode != MessageSecurityMode.None && _clientCertificate == null)
+        {
+            _logger.LogInformation("Selected endpoint requires security ({SecurityPolicy}). Provisioning application certificate...",
+                selectedEndpoint.SecurityPolicyUri);
+            _clientCertificate = await certManager.GetOrCreateApplicationCertificateAsync(
+                _applicationName, config.ApplicationUri).ConfigureAwait(false);
+            config.SecurityConfiguration.ApplicationCertificate.Certificate = _clientCertificate;
+        }
 
         // Apply security settings if specified
         if (_securityMode != MessageSecurityMode.None)
