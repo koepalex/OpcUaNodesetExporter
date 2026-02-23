@@ -25,6 +25,9 @@ public class OpcUaClientOptionsTests
         Assert.False(options.Verbose);
         Assert.Equal(3, options.RetryCount);
         Assert.Equal(5, options.RetryDelaySeconds);
+        Assert.Equal(5, options.KeepAliveIntervalSeconds);
+        Assert.Equal(120, options.SessionTimeoutSeconds);
+        Assert.Equal(3, options.KeepAliveFailureThreshold);
         Assert.Equal("OpcUaNodesetExporter", options.ApplicationName);
     }
 
@@ -77,5 +80,44 @@ public class OpcUaClientOptionsTests
         Assert.Equal(AuthenticationMode.UserName, options.AuthMode);
         Assert.Equal("admin", options.Username);
         Assert.Equal("secret", options.Password);
+    }
+
+    [Fact]
+    public void KeepAliveSettings_CanBeConfigured()
+    {
+        // Arrange & Act
+        var options = new OpcUaClientOptions
+        {
+            Endpoint = "opc.tcp://localhost:4840",
+            KeepAliveIntervalSeconds = 10,
+            SessionTimeoutSeconds = 300,
+            KeepAliveFailureThreshold = 5
+        };
+
+        // Assert
+        Assert.Equal(10, options.KeepAliveIntervalSeconds);
+        Assert.Equal(300, options.SessionTimeoutSeconds);
+        Assert.Equal(5, options.KeepAliveFailureThreshold);
+    }
+
+    [Theory]
+    [InlineData(1, 60, 1)]
+    [InlineData(30, 600, 10)]
+    [InlineData(5, 120, 3)]
+    public void KeepAliveSettings_AcceptVariousValues(int keepAliveInterval, int sessionTimeout, int failureThreshold)
+    {
+        // Arrange & Act
+        var options = new OpcUaClientOptions
+        {
+            Endpoint = "opc.tcp://localhost:4840",
+            KeepAliveIntervalSeconds = keepAliveInterval,
+            SessionTimeoutSeconds = sessionTimeout,
+            KeepAliveFailureThreshold = failureThreshold
+        };
+
+        // Assert
+        Assert.Equal(keepAliveInterval, options.KeepAliveIntervalSeconds);
+        Assert.Equal(sessionTimeout, options.SessionTimeoutSeconds);
+        Assert.Equal(failureThreshold, options.KeepAliveFailureThreshold);
     }
 }

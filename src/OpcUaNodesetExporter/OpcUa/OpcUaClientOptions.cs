@@ -73,6 +73,26 @@ public class OpcUaClientOptions
     public int RetryDelaySeconds { get; set; } = 5;
 
     /// <summary>
+    /// Keep-alive interval in seconds. The client sends periodic requests to check 
+    /// if the server is still responsive. Lower values detect disconnects faster 
+    /// but increase network traffic.
+    /// </summary>
+    public int KeepAliveIntervalSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Session timeout in seconds. This is the maximum time the server will keep 
+    /// the session alive without communication. Should be higher than KeepAliveInterval.
+    /// Increase this value for slow or unreliable networks.
+    /// </summary>
+    public int SessionTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Number of consecutive missed keep-alive responses before triggering automatic 
+    /// reconnection. Default is 3 (reconnect after ~15 seconds with default keep-alive interval).
+    /// </summary>
+    public int KeepAliveFailureThreshold { get; set; } = 3;
+
+    /// <summary>
     /// Application name used for the OPC UA client.
     /// </summary>
     public string ApplicationName { get; set; } = "OpcUaNodesetExporter";

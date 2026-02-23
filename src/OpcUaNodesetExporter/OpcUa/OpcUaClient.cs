@@ -14,15 +14,20 @@ public class OpcUaClient : IDisposable, IAsyncDisposable
     private readonly ApplicationConfiguration _configuration;
     private readonly int _retryCount;
     private readonly TimeSpan _retryDelay;
+    private readonly int _keepAliveFailureThreshold;
     private ISession _session;
     private bool _disposed;
+    private int _keepAliveFailureCount;
+    private bool _isReconnecting;
+    private readonly object _reconnectLock = new();
 
     internal OpcUaClient(
         ISession session,
         ApplicationConfiguration configuration,
         ILoggerFactory loggerFactory,
         int retryCount,
-        TimeSpan retryDelay)
+        TimeSpan retryDelay,
+        int keepAliveFailureThreshold)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -30,6 +35,7 @@ public class OpcUaClient : IDisposable, IAsyncDisposable
         _logger = loggerFactory.CreateLogger<OpcUaClient>();
         _retryCount = retryCount;
         _retryDelay = retryDelay;
+        _keepAliveFailureThreshold = keepAliveFailureThreshold;
 
         // Setup keep-alive handler for reconnection
         _session.KeepAlive += OnKeepAlive;
@@ -169,13 +175,62 @@ public class OpcUaClient : IDisposable, IAsyncDisposable
     {
         if (e.Status != null && ServiceResult.IsNotGood(e.Status))
         {
-            _logger.LogWarning("Keep-alive error: {Status}", e.Status);
+            _keepAliveFailureCount++;
+            _logger.LogWarning("Keep-alive error ({Count}/{Threshold}): {Status}",
+                _keepAliveFailureCount, _keepAliveFailureThreshold, e.Status);
 
-            if (!session.Connected)
+            if (_keepAliveFailureCount >= _keepAliveFailureThreshold)
             {
-                _logger.LogWarning("Session disconnected, will attempt reconnect on next operation.");
+                _logger.LogWarning("Keep-alive failure threshold reached. Triggering automatic reconnection...");
+                TriggerReconnection();
             }
         }
+        else
+        {
+            // Reset failure count on successful keep-alive
+            if (_keepAliveFailureCount > 0)
+            {
+                _logger.LogDebug("Keep-alive succeeded, resetting failure count from {Count}", _keepAliveFailureCount);
+                _keepAliveFailureCount = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Triggers an asynchronous reconnection attempt from the keep-alive handler.
+    /// </summary>
+    private void TriggerReconnection()
+    {
+        lock (_reconnectLock)
+        {
+            if (_isReconnecting)
+            {
+                _logger.LogDebug("Reconnection already in progress, skipping duplicate trigger");
+                return;
+            }
+            _isReconnecting = true;
+        }
+
+        // Fire-and-forget reconnection - errors are logged internally
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ReconnectAsync(CancellationToken.None).ConfigureAwait(false);
+                _keepAliveFailureCount = 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Automatic reconnection failed");
+            }
+            finally
+            {
+                lock (_reconnectLock)
+                {
+                    _isReconnecting = false;
+                }
+            }
+        });
     }
 
     private static bool IsTransientError(Exception ex)

@@ -57,6 +57,9 @@ Options:
   -o, --output <directory>            Output directory for NodeSet2 XML files [default: ./output]
       --retry-count <count>           Number of reconnection attempts on disconnect [default: 3]
       --retry-delay <seconds>         Delay between retries in seconds [default: 5]
+      --keep-alive <seconds>          Keep-alive interval in seconds [default: 5]
+      --session-timeout <seconds>     Session timeout in seconds [default: 120]
+      --keep-alive-threshold <count>  Missed keep-alives before reconnect [default: 3]
   -v, --verbose                       Enable verbose logging
   -?, -h, --help                      Show help and usage information
 ```
@@ -198,6 +201,7 @@ The tool automatically handles connection interruptions:
 - Retries on transient errors (network issues, server restarts)
 - Exponential backoff between retry attempts
 - Configurable retry count and delay
+- Keep-alive monitoring with automatic reconnection on failure
 
 ```bash
 # Custom retry settings
@@ -205,6 +209,27 @@ opcua-nodeset-export -e opc.tcp://server:4840 \
   --retry-count 5 \
   --retry-delay 10
 ```
+
+### Keep-Alive Configuration
+
+The client sends periodic keep-alive requests to detect connection issues early. If the server doesn't respond, the client automatically attempts to reconnect.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--keep-alive` | 5 | Interval between keep-alive requests (seconds) |
+| `--session-timeout` | 120 | Maximum time server keeps session alive without communication (seconds) |
+| `--keep-alive-threshold` | 3 | Number of missed keep-alives before triggering reconnection |
+
+**For slow or unreliable networks:**
+
+```bash
+opcua-nodeset-export -e opc.tcp://server:4840 \
+  --session-timeout 300 \
+  --keep-alive 10 \
+  --keep-alive-threshold 5
+```
+
+This configuration gives more tolerance for temporary network issues by extending the session timeout to 5 minutes and allowing up to 5 missed keep-alives (~50 seconds) before reconnecting.
 
 ## Building from Source
 
@@ -260,6 +285,25 @@ opcua-nodeset-export -e opc.tcp://server:4840 \
   --retry-count 10 \
   --retry-delay 30
 ```
+
+### Keep-Alive Errors
+
+If you see errors like `Keep-alive error: [80310000] 'Server not responding to keep alive requests.'`:
+
+1. **Increase session timeout** for slow networks:
+   ```bash
+   opcua-nodeset-export -e opc.tcp://server:4840 --session-timeout 300
+   ```
+
+2. **Reduce keep-alive frequency** if the server is overloaded:
+   ```bash
+   opcua-nodeset-export -e opc.tcp://server:4840 --keep-alive 15
+   ```
+
+3. **Increase failure tolerance** for unstable connections:
+   ```bash
+   opcua-nodeset-export -e opc.tcp://server:4840 --keep-alive-threshold 5
+   ```
 
 ## License
 

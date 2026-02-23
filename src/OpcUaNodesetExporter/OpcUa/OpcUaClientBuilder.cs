@@ -23,6 +23,9 @@ public class OpcUaClientBuilder
     private bool _trustAllCertificates = true;
     private int _retryCount = 3;
     private TimeSpan _retryDelay = TimeSpan.FromSeconds(5);
+    private int _keepAliveIntervalSeconds = 5;
+    private int _sessionTimeoutSeconds = 120;
+    private int _keepAliveFailureThreshold = 3;
     private string _applicationName = "OpcUaNodesetExporter";
     private CertificateManager? _certificateManager;
 
@@ -128,6 +131,36 @@ public class OpcUaClientBuilder
     }
 
     /// <summary>
+    /// Sets the keep-alive interval in seconds.
+    /// </summary>
+    /// <param name="intervalSeconds">Interval between keep-alive requests.</param>
+    public OpcUaClientBuilder WithKeepAliveInterval(int intervalSeconds)
+    {
+        _keepAliveIntervalSeconds = intervalSeconds > 0 ? intervalSeconds : 5;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the session timeout in seconds.
+    /// </summary>
+    /// <param name="timeoutSeconds">Maximum time the server keeps the session alive without communication.</param>
+    public OpcUaClientBuilder WithSessionTimeout(int timeoutSeconds)
+    {
+        _sessionTimeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 120;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the number of consecutive missed keep-alive responses before triggering reconnection.
+    /// </summary>
+    /// <param name="threshold">Number of missed keep-alives before reconnecting.</param>
+    public OpcUaClientBuilder WithKeepAliveFailureThreshold(int threshold)
+    {
+        _keepAliveFailureThreshold = threshold > 0 ? threshold : 3;
+        return this;
+    }
+
+    /// <summary>
     /// Sets the application name for the OPC UA client.
     /// </summary>
     public OpcUaClientBuilder WithApplicationName(string applicationName)
@@ -159,6 +192,9 @@ public class OpcUaClientBuilder
         _clientCertificate = options.Certificate;
         _retryCount = options.RetryCount;
         _retryDelay = TimeSpan.FromSeconds(options.RetryDelaySeconds);
+        _keepAliveIntervalSeconds = options.KeepAliveIntervalSeconds;
+        _sessionTimeoutSeconds = options.SessionTimeoutSeconds;
+        _keepAliveFailureThreshold = options.KeepAliveFailureThreshold;
         _applicationName = options.ApplicationName;
         return this;
     }
@@ -184,7 +220,13 @@ public class OpcUaClientBuilder
         // Create and connect with retry logic
         var session = await ConnectWithRetryAsync(config, certManager, cancellationToken).ConfigureAwait(false);
 
-        return new OpcUaClient(session, config, _loggerFactory, _retryCount, _retryDelay);
+        return new OpcUaClient(
+            session,
+            config,
+            _loggerFactory,
+            _retryCount,
+            _retryDelay,
+            _keepAliveFailureThreshold);
     }
 
     private async Task<ApplicationConfiguration> BuildApplicationConfigurationAsync(CertificateManager certManager)
@@ -212,7 +254,7 @@ public class OpcUaClientBuilder
             },
             ClientConfiguration = new ClientConfiguration
             {
-                DefaultSessionTimeout = 60000,
+                DefaultSessionTimeout = _sessionTimeoutSeconds * 1000,
                 MinSubscriptionLifetime = 10000
             },
             TraceConfiguration = new TraceConfiguration()
@@ -343,14 +385,17 @@ public class OpcUaClientBuilder
             false,
             false,
             _applicationName,
-            60000,
+            (uint)(_sessionTimeoutSeconds * 1000),
             userIdentity,
             null,
             cancellationToken).ConfigureAwait(false);
 #pragma warning restore CS0618
 
-        _logger.LogInformation("Connected to {Endpoint}. Session ID: {SessionId}",
-            _endpoint, session.SessionId);
+        // Configure keep-alive interval
+        session.KeepAliveInterval = _keepAliveIntervalSeconds * 1000;
+
+        _logger.LogInformation("Connected to {Endpoint}. Session ID: {SessionId}, KeepAlive: {KeepAlive}s, Timeout: {Timeout}s",
+            _endpoint, session.SessionId, _keepAliveIntervalSeconds, _sessionTimeoutSeconds);
 
         return session;
     }
