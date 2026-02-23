@@ -57,3 +57,4 @@ nunit-*.xml
 tests/OpcUaNodesetExporter.AppHost/export/.vs/
 .vs/
 tests/OpcUaNodesetExporter.AppHost/export/
+output/
