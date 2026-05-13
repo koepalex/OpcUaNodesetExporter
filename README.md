@@ -45,6 +45,7 @@ opcua-nodeset-export [options]
 
 Options:
   -e, --endpoint <endpoint>           OPC UA server endpoint URL (e.g., opc.tcp://localhost:4840)
+  -s, --start-node <node>             Export subtree from this ExpandedNodeId (e.g., nsu=example.com/opcua/;i=5)
   -m, --security-mode <mode>          Security mode: None, Sign, SignAndEncrypt [default: None]
   -p, --security-policy <policy>      Security policy: None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss [default: None]
   -a, --auth-mode <mode>              Authentication mode: Anonymous, UserName, Certificate [default: Anonymous]
@@ -71,6 +72,7 @@ The following environment variables can be used to configure the tool:
 | Variable | Description | CLI Equivalent |
 |----------|-------------|----------------|
 | `OPCUA_ENDPOINT` | OPC UA server endpoint URL | `--endpoint` |
+| `OPCUA_START_NODE` | ExpandedNodeId for subtree export | `--start-node` |
 | `OPCUA_USERNAME` | Username for authentication | `--username` |
 | `OPCUA_PASSWORD` | Password for authentication | `--password` |
 | `OPCUA_CERTIFICATE_PATH` | Path to client certificate | `--certificate-path` |
@@ -87,6 +89,26 @@ opcua-nodeset-export -e opc.tcp://localhost:4840
 # Export to custom directory
 opcua-nodeset-export -e opc.tcp://localhost:4840 -o ./my-nodesets
 ```
+
+### Subtree Export
+
+Export a specific subtree starting from a given node. Only type definitions in the same namespace as the start node are included; types from other namespaces are referenced but not exported.
+
+```bash
+# Export subtree starting from a specific node (ExpandedNodeId format)
+opcua-nodeset-export -e opc.tcp://localhost:4840 -s "ns=4;i=5"
+
+# Export subtree with custom output directory
+opcua-nodeset-export -e opc.tcp://localhost:4840 -s "ns=4;i=5" -o ./subtree-export
+
+# Export subtree using a string node ID
+opcua-nodeset-export -e opc.tcp://localhost:4840 -s "ns=3;s=MyDevice"
+```
+
+The output is a single NodeSet2 XML file containing:
+- The start node and all its subnodes (via hierarchical references)
+- Type definitions used by the subtree that are in the same namespace as the start node
+- Supertypes of included types (if also in the same namespace)
 
 ### Secure Connection
 

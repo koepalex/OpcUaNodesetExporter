@@ -129,6 +129,14 @@ public class ExportCommand : RootCommand
             DefaultValueFactory = (_) => false
         };
 
+        var startNodeOption = new Option<string?>(
+            name: "--start-node",
+            aliases: new[] { "-s" })
+        {
+            Description = "Export a subtree starting from this ExpandedNodeId (e.g., ns=4;i=5). Only includes type definitions in the same namespace.",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.StartNode)
+        };
+
         // Add all options
         Options.Add(endpointOption);
         Options.Add(securityModeOption);
@@ -144,6 +152,7 @@ public class ExportCommand : RootCommand
         Options.Add(retryCountOption);
         Options.Add(retryDelayOption);
         Options.Add(verboseOption);
+        Options.Add(startNodeOption);
 
         this.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -161,6 +170,7 @@ public class ExportCommand : RootCommand
             var retryCount = parseResult.GetValue(retryCountOption);
             var retryDelay = parseResult.GetValue(retryDelayOption);
             var verbose = parseResult.GetValue(verboseOption);
+            var startNode = parseResult.GetValue(startNodeOption);
 
             return await ExecuteAsync(
                 endpoint,
@@ -177,6 +187,7 @@ public class ExportCommand : RootCommand
                 retryCount,
                 retryDelay,
                 verbose,
+                startNode,
                 cancellationToken);
         });
     }
@@ -196,6 +207,7 @@ public class ExportCommand : RootCommand
         int retryCount,
         int retryDelay,
         bool verbose,
+        string? startNode,
         CancellationToken cancellationToken)
     {
         // Configure logging
@@ -310,21 +322,45 @@ public class ExportCommand : RootCommand
                 client,
                 options.Verbose);
 
-            var exportedFiles = await exporter.ExportAllNamespacesAsync(
-                options.OutputDirectory,
-                cancellationToken);
-
-            // Print summary
-            logger.LogInformation("");
-            logger.LogInformation("Export Summary");
-            logger.LogInformation("==============");
-            foreach (var kvp in exportedFiles)
+            if (!string.IsNullOrEmpty(startNode))
             {
-                logger.LogInformation("  {Namespace} -> {File}", kvp.Key, Path.GetFileName(kvp.Value));
+                // Subtree export mode
+                var startNodeId = ExpandedNodeId.Parse(startNode, client.Session.NamespaceUris);
+                logger.LogInformation("Exporting subtree from {StartNode}...", startNodeId);
+
+                var exportedFile = await exporter.ExportSubtreeAsync(
+                    startNodeId,
+                    options.OutputDirectory,
+                    cancellationToken);
+
+                logger.LogInformation("");
+                logger.LogInformation("Export Summary");
+                logger.LogInformation("==============");
+                logger.LogInformation("  Subtree root: {StartNode}", startNodeId);
+                logger.LogInformation("  Output: {File}", Path.GetFileName(exportedFile));
+                logger.LogInformation("");
+                logger.LogInformation("Successfully exported subtree to {File}",
+                    Path.GetFullPath(exportedFile));
             }
-            logger.LogInformation("");
-            logger.LogInformation("Successfully exported {Count} namespace(s) to {Directory}",
-                exportedFiles.Count, Path.GetFullPath(options.OutputDirectory));
+            else
+            {
+                // Full namespace export mode
+                var exportedFiles = await exporter.ExportAllNamespacesAsync(
+                    options.OutputDirectory,
+                    cancellationToken);
+
+                // Print summary
+                logger.LogInformation("");
+                logger.LogInformation("Export Summary");
+                logger.LogInformation("==============");
+                foreach (var kvp in exportedFiles)
+                {
+                    logger.LogInformation("  {Namespace} -> {File}", kvp.Key, Path.GetFileName(kvp.Value));
+                }
+                logger.LogInformation("");
+                logger.LogInformation("Successfully exported {Count} namespace(s) to {Directory}",
+                    exportedFiles.Count, Path.GetFullPath(options.OutputDirectory));
+            }
 
             return 0;
         }

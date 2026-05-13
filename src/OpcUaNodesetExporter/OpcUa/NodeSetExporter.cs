@@ -74,6 +74,279 @@ public class NodeSetExporter
     }
 
     /// <summary>
+    /// Exports a subtree starting from a specific node to a single NodeSet2 XML file.
+    /// Includes the start node, all its subnodes (via hierarchical references), and
+    /// type definitions that are in the same namespace as the start node and used by the subtree.
+    /// </summary>
+    /// <param name="startNodeId">The ExpandedNodeId of the root node for the subtree export.</param>
+    /// <param name="outputDirectory">Directory to save the NodeSet2 file.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The path to the exported NodeSet2 XML file.</returns>
+    public async Task<string> ExportSubtreeAsync(
+        ExpandedNodeId startNodeId,
+        string outputDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Starting subtree export from {StartNode} to {OutputDirectory}",
+            startNodeId, outputDirectory);
+        var stopwatch = Stopwatch.StartNew();
+
+        Directory.CreateDirectory(outputDirectory);
+
+        _logger.LogInformation("Loading type system...");
+        await LoadTypeSystemAsync(cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation("Fetching subtree nodes from {StartNode}...", startNodeId);
+        var subtreeNodes = await FetchSubtreeNodesAsync(startNodeId, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Fetched {Count} subtree nodes.", subtreeNodes.Count);
+
+        var startNamespaceIndex = startNodeId.NamespaceIndex;
+        _logger.LogInformation("Collecting type definitions in namespace index {Namespace}...", startNamespaceIndex);
+        var typeDefinitions = await CollectUsedTypeDefinitionsAsync(
+            subtreeNodes, startNamespaceIndex, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Collected {Count} type definitions.", typeDefinitions.Count);
+
+        // Combine instance nodes and type definitions, avoiding duplicates
+        var allNodes = new Dictionary<ExpandedNodeId, INode>();
+        foreach (var node in subtreeNodes)
+        {
+            allNodes[node.NodeId] = node;
+        }
+        foreach (var node in typeDefinitions)
+        {
+            allNodes[node.NodeId] = node;
+        }
+
+        var combinedNodes = allNodes.Values.ToList();
+        combinedNodes.Sort((x, y) => x.NodeId.CompareTo(y.NodeId));
+
+        // Generate output file name from the start node
+        var session = _client.Session;
+        string namespaceUri = session.NamespaceUris.GetString(startNamespaceIndex);
+        string fileName = CreateSafeFileName(namespaceUri, startNamespaceIndex);
+        string filePath = Path.Combine(outputDirectory, fileName);
+
+        _logger.LogInformation("Exporting {Count} nodes to {File}...", combinedNodes.Count, fileName);
+
+        await Task.Run(() =>
+        {
+            ExportNodesToNodeSet2File(session, combinedNodes, filePath);
+        }, cancellationToken).ConfigureAwait(false);
+
+        stopwatch.Stop();
+        _logger.LogInformation("Subtree export completed in {Duration}ms. Exported {Count} nodes to {File}.",
+            stopwatch.ElapsedMilliseconds, combinedNodes.Count, filePath);
+
+        return filePath;
+    }
+
+    /// <summary>
+    /// Fetches all nodes in the subtree starting from the given node via hierarchical references.
+    /// Includes the start node itself.
+    /// </summary>
+    private async Task<IList<INode>> FetchSubtreeNodesAsync(
+        ExpandedNodeId startNodeId,
+        CancellationToken cancellationToken)
+    {
+        return await _client.ExecuteWithRetryAsync(async (session, ct) =>
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var nodeDictionary = new Dictionary<ExpandedNodeId, INode>();
+            var references = new NodeIdCollection { ReferenceTypeIds.HierarchicalReferences };
+            var nodesToBrowse = new ExpandedNodeIdCollection { startNodeId };
+
+            session.NodeCache.Clear();
+            await FetchReferenceIdTypesAsync(session, ct).ConfigureAwait(false);
+
+            // Add the start node itself
+            var startNode = await session.NodeCache.FindAsync(startNodeId, ct).ConfigureAwait(false);
+            if (startNode != null)
+            {
+                nodeDictionary[startNode.NodeId] = startNode;
+            }
+
+            int searchDepth = 0;
+            while (nodesToBrowse.Count > 0 && searchDepth < MaxSearchDepth)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                searchDepth++;
+                _logger.LogInformation("Subtree depth {Depth}: Browsing {Count} nodes ({Elapsed}ms)...",
+                    searchDepth, nodesToBrowse.Count, stopwatch.ElapsedMilliseconds);
+
+                var response = await session.NodeCache.FindReferencesAsync(
+                    nodesToBrowse, references, false, true, ct).ConfigureAwait(false);
+
+                var nextNodesToBrowse = new ExpandedNodeIdCollection();
+                int duplicates = 0;
+
+                foreach (var node in response)
+                {
+                    if (!nodeDictionary.ContainsKey(node.NodeId))
+                    {
+                        nodeDictionary[node.NodeId] = node;
+
+                        bool isLeafNode = false;
+                        if (node is VariableNode variableNode)
+                        {
+                            var hasTypeDefinition = variableNode.ReferenceTable
+                                .FirstOrDefault(r => r.ReferenceTypeId.Equals(ReferenceTypeIds.HasTypeDefinition));
+                            if (hasTypeDefinition != null)
+                            {
+                                isLeafNode = hasTypeDefinition.TargetId == VariableTypeIds.PropertyType;
+                            }
+                        }
+
+                        if (!isLeafNode)
+                        {
+                            nextNodesToBrowse.Add(node.NodeId);
+                        }
+                    }
+                    else
+                    {
+                        duplicates++;
+                    }
+                }
+
+                if (duplicates > 0)
+                {
+                    _logger.LogDebug("Skipped {Count} duplicate nodes.", duplicates);
+                }
+
+                nodesToBrowse = nextNodesToBrowse;
+            }
+
+            stopwatch.Stop();
+
+            var result = nodeDictionary.Values.ToList();
+            result.Sort((x, y) => x.NodeId.CompareTo(y.NodeId));
+
+            _logger.LogInformation("FetchSubtreeNodes found {Count} nodes in {Duration}ms.",
+                result.Count, stopwatch.ElapsedMilliseconds);
+
+            if (_verbose)
+            {
+                foreach (var node in result.Take(100))
+                {
+                    _logger.LogDebug("Node: {NodeId} ({NodeClass}) - {BrowseName}",
+                        node.NodeId, node.NodeClass, node.BrowseName);
+                }
+                if (result.Count > 100)
+                {
+                    _logger.LogDebug("... and {Count} more nodes.", result.Count - 100);
+                }
+            }
+
+            return (IList<INode>)result;
+        }, "FetchSubtreeNodes", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Collects type definitions used by the subtree nodes that are in the specified namespace.
+    /// Also includes supertypes in the same namespace to ensure a valid type hierarchy.
+    /// </summary>
+    private async Task<IList<INode>> CollectUsedTypeDefinitionsAsync(
+        IList<INode> subtreeNodes,
+        ushort targetNamespaceIndex,
+        CancellationToken cancellationToken)
+    {
+        return await _client.ExecuteWithRetryAsync(async (session, ct) =>
+        {
+            var typeDefNodes = new Dictionary<ExpandedNodeId, INode>();
+            var processedTypeIds = new HashSet<ExpandedNodeId>();
+
+            // Collect all type definition IDs referenced by subtree nodes
+            var typeDefIdsToResolve = new HashSet<ExpandedNodeId>();
+            foreach (var node in subtreeNodes)
+            {
+                var typeDefId = node.TypeDefinitionId;
+                if (!NodeId.IsNull(typeDefId) && typeDefId.NamespaceIndex == targetNamespaceIndex)
+                {
+                    typeDefIdsToResolve.Add(typeDefId);
+                }
+            }
+
+            _logger.LogDebug("Found {Count} unique type definition references in target namespace.",
+                typeDefIdsToResolve.Count);
+
+            // Resolve type definitions and walk the supertype chain
+            while (typeDefIdsToResolve.Count > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var currentBatch = typeDefIdsToResolve.ToList();
+                typeDefIdsToResolve.Clear();
+
+                foreach (var typeDefId in currentBatch)
+                {
+                    if (processedTypeIds.Contains(typeDefId))
+                    {
+                        continue;
+                    }
+                    processedTypeIds.Add(typeDefId);
+
+                    // Fetch the type definition node
+                    var typeNode = await session.NodeCache.FindAsync(typeDefId, ct).ConfigureAwait(false);
+                    if (typeNode == null)
+                    {
+                        _logger.LogWarning("Could not find type definition node {TypeDefId}", typeDefId);
+                        continue;
+                    }
+
+                    typeDefNodes[typeNode.NodeId] = typeNode;
+
+                    if (_verbose)
+                    {
+                        _logger.LogDebug("Included type definition: {NodeId} ({BrowseName})",
+                            typeNode.NodeId, typeNode.BrowseName);
+                    }
+
+                    // Walk the supertype chain: find the parent type via HasSubtype inverse
+                    var supertypes = await session.NodeCache.FindReferencesAsync(
+                        typeDefId,
+                        ReferenceTypeIds.HasSubtype,
+                        true, // isInverse = true → finds the parent/supertype
+                        false,
+                        ct).ConfigureAwait(false);
+
+                    foreach (var supertype in supertypes)
+                    {
+                        if (supertype.NodeId.NamespaceIndex == targetNamespaceIndex &&
+                            !processedTypeIds.Contains(supertype.NodeId))
+                        {
+                            typeDefIdsToResolve.Add(supertype.NodeId);
+                        }
+                    }
+
+                    // Also collect child nodes of the type definition (components, properties)
+                    // that are in the same namespace, so the type definition is complete
+                    var typeChildren = await session.NodeCache.FindReferencesAsync(
+                        typeDefId,
+                        ReferenceTypeIds.HierarchicalReferences,
+                        false,
+                        true,
+                        ct).ConfigureAwait(false);
+
+                    foreach (var child in typeChildren)
+                    {
+                        if (child.NodeId.NamespaceIndex == targetNamespaceIndex &&
+                            !typeDefNodes.ContainsKey(child.NodeId))
+                        {
+                            typeDefNodes[child.NodeId] = child;
+                        }
+                    }
+                }
+            }
+
+            var result = typeDefNodes.Values.ToList();
+            _logger.LogInformation("Collected {Count} type definition nodes (including supertypes and children) in namespace {Namespace}.",
+                result.Count, targetNamespaceIndex);
+
+            return (IList<INode>)result;
+        }, "CollectUsedTypeDefinitions", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Loads the complex type system from the server.
     /// </summary>
     private async Task LoadTypeSystemAsync(CancellationToken cancellationToken)

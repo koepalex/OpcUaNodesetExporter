@@ -31,6 +31,11 @@ public static class EnvironmentVariables
     public const string CertificatePassword = "OPCUA_CERTIFICATE_PASSWORD";
 
     /// <summary>
+    /// Environment variable for the start node ExpandedNodeId (subtree export).
+    /// </summary>
+    public const string StartNode = "OPCUA_START_NODE";
+
+    /// <summary>
     /// Gets the value of an environment variable, returning null if not set or empty.
     /// </summary>
     /// <param name="variableName">The name of the environment variable.</param>
