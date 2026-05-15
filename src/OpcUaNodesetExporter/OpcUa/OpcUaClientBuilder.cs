@@ -352,7 +352,24 @@ public class OpcUaClientBuilder
 
         // Select the best matching endpoint
         var selectedEndpoint = SelectBestEndpoint(endpointCollection);
-        _logger.LogDebug("Discovered endpoint URL: {DiscoveredUrl}. User provided URL: {OriginalUrl}", selectedEndpoint.EndpointUrl, _endpoint);
+        var discoveredEndpointUrl = selectedEndpoint.EndpointUrl;
+        var effectiveEndpointUrl = GetEffectiveSessionEndpointUrl(endpointUrl, discoveredEndpointUrl);
+
+        if (!string.Equals(discoveredEndpointUrl, effectiveEndpointUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Using requested endpoint authority for session. Requested: {RequestedUrl}, Discovered: {DiscoveredUrl}, Effective: {EffectiveUrl}",
+                _endpoint,
+                discoveredEndpointUrl,
+                effectiveEndpointUrl);
+        }
+
+        selectedEndpoint.EndpointUrl = effectiveEndpointUrl;
+        _logger.LogDebug(
+            "Requested endpoint URL: {RequestedUrl}. Discovered endpoint URL: {DiscoveredUrl}. Effective session endpoint URL: {EffectiveUrl}",
+            _endpoint,
+            discoveredEndpointUrl,
+            effectiveEndpointUrl);
 
         // If the selected endpoint requires security, ensure we have a certificate
         if (selectedEndpoint.SecurityMode != MessageSecurityMode.None && _clientCertificate == null)
@@ -448,6 +465,53 @@ public class OpcUaClientBuilder
         }
 
         throw new ServiceResultException(StatusCodes.BadNoMatch, "No suitable endpoint found on server.");
+    }
+
+    internal static string GetEffectiveSessionEndpointUrl(Uri requestedEndpointUrl, string discoveredEndpointUrl)
+    {
+        if (!Uri.TryCreate(discoveredEndpointUrl, UriKind.Absolute, out var discoveredEndpointUri))
+        {
+            return requestedEndpointUrl.AbsoluteUri;
+        }
+
+        var hasRequestedPath =
+            !string.IsNullOrEmpty(requestedEndpointUrl.AbsolutePath) &&
+            !string.Equals(requestedEndpointUrl.AbsolutePath, "/", StringComparison.Ordinal);
+        var hasRequestedQuery = !string.IsNullOrEmpty(requestedEndpointUrl.Query);
+        var authorityDiffers = !UrisShareAuthority(requestedEndpointUrl, discoveredEndpointUri);
+
+        if (!authorityDiffers && !hasRequestedPath && !hasRequestedQuery)
+        {
+            return discoveredEndpointUri.AbsoluteUri;
+        }
+
+        var builder = new UriBuilder(discoveredEndpointUri);
+
+        if (authorityDiffers)
+        {
+            builder.Scheme = requestedEndpointUrl.Scheme;
+            builder.Host = requestedEndpointUrl.Host;
+            builder.Port = requestedEndpointUrl.Port;
+        }
+
+        if (hasRequestedPath)
+        {
+            builder.Path = requestedEndpointUrl.AbsolutePath;
+        }
+
+        if (hasRequestedQuery)
+        {
+            builder.Query = requestedEndpointUrl.Query.TrimStart('?');
+        }
+
+        return builder.Uri.AbsoluteUri;
+    }
+
+    private static bool UrisShareAuthority(Uri requestedEndpointUrl, Uri discoveredEndpointUri)
+    {
+        return string.Equals(requestedEndpointUrl.Scheme, discoveredEndpointUri.Scheme, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(requestedEndpointUrl.Host, discoveredEndpointUri.Host, StringComparison.OrdinalIgnoreCase) &&
+               requestedEndpointUrl.Port == discoveredEndpointUri.Port;
     }
 
     private UserIdentity CreateUserIdentity()
