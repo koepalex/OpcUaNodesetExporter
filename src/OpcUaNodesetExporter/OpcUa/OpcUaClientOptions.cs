@@ -63,6 +63,15 @@ public class OpcUaClientOptions
     public bool Verbose { get; set; }
 
     /// <summary>
+    /// When true, the exporter reads all standard attributes (including the
+    /// <c>Value</c> attribute for Variable and VariableType nodes) and writes
+    /// a JSON sidecar file per produced NodeSet2 XML that records every
+    /// attribute and its <see cref="StatusCode"/>. This is primarily intended
+    /// for detecting nodes with empty values or unreadable attributes.
+    /// </summary>
+    public bool ExportAttributes { get; set; }
+
+    /// <summary>
     /// Number of reconnection attempts on disconnect.
     /// </summary>
     public int RetryCount { get; set; } = 3;

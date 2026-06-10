@@ -137,6 +137,13 @@ public class ExportCommand : RootCommand
             DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.StartNode)
         };
 
+        var exportAttributesOption = new Option<bool>(
+            name: "--export-attributes")
+        {
+            Description = "Read all standard attributes (incl. Value for variables) and write a JSON sidecar per NodeSet2 file with attribute values and status codes. Useful for detecting empty/unreadable values.",
+            DefaultValueFactory = (_) => false
+        };
+
         // Add all options
         Options.Add(endpointOption);
         Options.Add(securityModeOption);
@@ -153,6 +160,7 @@ public class ExportCommand : RootCommand
         Options.Add(retryDelayOption);
         Options.Add(verboseOption);
         Options.Add(startNodeOption);
+        Options.Add(exportAttributesOption);
 
         this.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -171,6 +179,7 @@ public class ExportCommand : RootCommand
             var retryDelay = parseResult.GetValue(retryDelayOption);
             var verbose = parseResult.GetValue(verboseOption);
             var startNode = parseResult.GetValue(startNodeOption);
+            var exportAttributes = parseResult.GetValue(exportAttributesOption);
 
             return await ExecuteAsync(
                 endpoint,
@@ -188,6 +197,7 @@ public class ExportCommand : RootCommand
                 retryDelay,
                 verbose,
                 startNode,
+                exportAttributes,
                 cancellationToken);
         });
     }
@@ -208,6 +218,7 @@ public class ExportCommand : RootCommand
         int retryDelay,
         bool verbose,
         string? startNode,
+        bool exportAttributes,
         CancellationToken cancellationToken)
     {
         // Configure logging
@@ -274,7 +285,8 @@ public class ExportCommand : RootCommand
                 OutputDirectory = output,
                 RetryCount = retryCount,
                 RetryDelaySeconds = retryDelay,
-                Verbose = verbose
+                Verbose = verbose,
+                ExportAttributes = exportAttributes
             };
 
             // Validate authentication requirements
@@ -302,6 +314,10 @@ public class ExportCommand : RootCommand
             logger.LogInformation("Security Policy: {SecurityPolicy}", options.SecurityPolicy);
             logger.LogInformation("Authentication: {AuthMode}", options.AuthMode);
             logger.LogInformation("Output Directory: {Output}", options.OutputDirectory);
+            if (options.ExportAttributes)
+            {
+                logger.LogInformation("Attribute export: enabled (Value reads + JSON sidecars)");
+            }
             logger.LogInformation("");
 
             // Connect to server
@@ -320,7 +336,8 @@ public class ExportCommand : RootCommand
                 loggerFactory.CreateLogger<NodeSetExporter>(),
                 loggerFactory,
                 client,
-                options.Verbose);
+                options.Verbose,
+                options.ExportAttributes);
 
             if (!string.IsNullOrEmpty(startNode))
             {

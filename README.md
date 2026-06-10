@@ -15,6 +15,8 @@ A .NET global tool that connects to an OPC UA server and exports all custom name
 - 🔄 Automatic reconnection with configurable retry logic
 - 🖥️ Cross-platform (Windows, Linux, macOS)
 - 📝 Credential input via stdin for CI/CD pipelines
+- 🩺 Optional attribute diagnostics (`--export-attributes`): JSON sidecar with
+  every standard attribute (incl. `Value`) and its `StatusCode` per node
 
 ## Installation
 
@@ -61,6 +63,8 @@ Options:
       --keep-alive <seconds>          Keep-alive interval in seconds [default: 5]
       --session-timeout <seconds>     Session timeout in seconds [default: 120]
       --keep-alive-threshold <count>  Missed keep-alives before reconnect [default: 3]
+      --export-attributes             Read all standard attributes (incl. Value) and write a JSON
+                                      sidecar per NodeSet2 file with attribute values and status codes
   -v, --verbose                       Enable verbose logging
   -?, -h, --help                      Show help and usage information
 ```
@@ -109,6 +113,58 @@ The output is a single NodeSet2 XML file containing:
 - The start node and all its subnodes (via hierarchical references)
 - Type definitions used by the subtree that are in the same namespace as the start node
 - Supertypes of included types (if also in the same namespace)
+
+### Diagnostic Attribute Export (`--export-attributes`)
+
+By default the exporter populates only the attributes that the OPC UA Browse
+service returns. Every other attribute (such as `Value`, `ValueRank`,
+`MinimumSamplingInterval`, `DataType`, `AccessLevel`, ...) is re-read from
+the server before serialization, so the produced NodeSet2 XML reflects the
+real address space — `ValueRank="-2"` and `MinimumSamplingInterval="-1"` no
+longer leak through as the SDK's in-memory defaults.
+
+`--export-attributes` additionally:
+
+- Reads the `Value` attribute of every Variable / VariableType node, so the
+  NodeSet2 XML contains a `<Value>` element when the server returned data.
+- Writes a JSON diagnostic file alongside each NodeSet2 XML named
+  `<namespace>_attributes.json`. The file records every attribute relevant to
+  each node's `NodeClass` together with the OPC UA `StatusCode` returned by
+  the server. This makes it easy to spot variables that have an empty value,
+  return `BadAttributeIdInvalid`, or otherwise fail to read.
+
+```bash
+# Full export with attribute diagnostics
+opcua-nodeset-export -e opc.tcp://localhost:4840 --export-attributes
+
+# Subtree export with diagnostics (works in both modes)
+opcua-nodeset-export -e opc.tcp://localhost:4840 -s "ns=4;i=5" --export-attributes
+```
+
+Example excerpt of `<namespace>_attributes.json`:
+
+```json
+{
+  "namespaceUri": "http://example.com/devices/",
+  "namespaceIndex": 4,
+  "exportedAt": "2026-06-10T18:42:00Z",
+  "nodes": [
+    {
+      "nodeId": "ns=4;i=1234",
+      "browseName": "4:MyVar",
+      "displayName": "MyVar",
+      "nodeClass": "Variable",
+      "attributes": {
+        "Value":                   { "status": "Good",             "statusCode": "0x00000000", "value": 42 },
+        "DataType":                { "status": "Int32",            "statusCode": "0x00000000", "value": "i=6" },
+        "ValueRank":               { "status": "Good",             "statusCode": "0x00000000", "value": -1 },
+        "AccessLevel":             { "status": "Good",             "statusCode": "0x00000000", "value": 3 },
+        "MinimumSamplingInterval": { "status": "BadNotReadable",   "statusCode": "0x803A0000", "value": null }
+      }
+    }
+  ]
+}
+```
 
 ### Secure Connection
 

@@ -53,4 +53,24 @@ builder.AddProject<OpcUaNodesetExporter>("opcplc-opcua-nodeset-exporter")
     .WithEnvironment("OPCUA_START_NODE", "nsu=http://microsoft.com/Opc/OpcPlc/Boiler;i=5017")
     .WithArgs("--output", exportFolder);
 
+// Additional exporter instances that exercise --export-attributes (full + subtree mode).
+// They write into dedicated subfolders so the JSON sidecars don't collide with the
+// "plain" exports above.
+var umatiAttrsFolder = Path.Combine(exportFolder, "umati-attrs");
+Directory.CreateDirectory(umatiAttrsFolder);
+
+var opcPlcAttrsFolder = Path.Combine(exportFolder, "opcplc-attrs");
+Directory.CreateDirectory(opcPlcAttrsFolder);
+
+builder.AddProject<OpcUaNodesetExporter>("umati-opcua-nodeset-exporter-with-attributes")
+    .WithEnvironment("OPCUA_ENDPOINT", umatiServerEndpoint)
+    .WithArgs("--output", umatiAttrsFolder)
+    .WithArgs("--export-attributes");
+
+builder.AddProject<OpcUaNodesetExporter>("opcplc-opcua-nodeset-exporter-with-attributes")
+    .WithEnvironment("OPCUA_ENDPOINT", opcPlcEndpoint)
+    .WithEnvironment("OPCUA_START_NODE", "nsu=http://microsoft.com/Opc/OpcPlc/Boiler;i=5017")
+    .WithArgs("--output", opcPlcAttrsFolder)
+    .WithArgs("--export-attributes");
+
 builder.Build().Run();
