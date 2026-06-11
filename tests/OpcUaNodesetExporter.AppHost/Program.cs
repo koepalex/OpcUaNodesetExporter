@@ -65,7 +65,8 @@ Directory.CreateDirectory(opcPlcAttrsFolder);
 builder.AddProject<OpcUaNodesetExporter>("umati-opcua-nodeset-exporter-with-attributes")
     .WithEnvironment("OPCUA_ENDPOINT", umatiServerEndpoint)
     .WithArgs("--output", umatiAttrsFolder)
-    .WithArgs("--export-attributes");
+    .WithArgs("--export-attributes")
+    .WithArgs("--verbose");
 
 builder.AddProject<OpcUaNodesetExporter>("opcplc-opcua-nodeset-exporter-with-attributes")
     .WithEnvironment("OPCUA_ENDPOINT", opcPlcEndpoint)
