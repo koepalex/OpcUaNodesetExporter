@@ -36,6 +36,14 @@ public static class EnvironmentVariables
     public const string StartNode = "OPCUA_START_NODE";
 
     /// <summary>
+    /// Environment variable for the optional log file path. When set, all log
+    /// output (at <c>--verbose</c> level when verbose is enabled, otherwise
+    /// <c>Information</c>) is also written to this file in addition to the
+    /// console.
+    /// </summary>
+    public const string LogFile = "OPCUA_LOG_FILE";
+
+    /// <summary>
     /// Gets the value of an environment variable, returning null if not set or empty.
     /// </summary>
     /// <param name="variableName">The name of the environment variable.</param>

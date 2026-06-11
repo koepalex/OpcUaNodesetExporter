@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
@@ -249,6 +250,310 @@ public class IntegrationTests : IAsyncLifetime
             // but should NOT include UAObjectType/UAVariableType nodes from namespace 0
             // (OPC UA base types like BaseObjectType are ns=0 and should not be exported as nodes)
             Assert.DoesNotContain("NodeId=\"i=", xmlContent); // No ns=0 node definitions
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DefaultExport_VariablesHaveRealValueRankAndMinimumSamplingInterval()
+    {
+        // Regression test for the bug where every exported variable had
+        // ValueRank="-2" and MinimumSamplingInterval="-1" — those are the
+        // SDK's in-memory defaults that leak through when only Browse is used.
+        // After the HydrateNodeAttributes step, real server values must be
+        // emitted (or the attributes must be omitted entirely, taking the
+        // NodeSet2 XML defaults of ValueRank=-1 and MinimumSamplingInterval=0).
+        Assert.NotNull(_opcUaEndpoint);
+
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "opcua-hydrate-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var options = new OpcUaClientOptions
+            {
+                Endpoint = _opcUaEndpoint,
+                OutputDirectory = tempDir,
+                RetryCount = 3,
+                RetryDelaySeconds = 5
+            };
+
+            await using var client = await OpcUaClientBuilder
+                .Create(loggerFactory)
+                .FromOptions(options)
+                .TrustAllServerCertificates()
+                .ConnectAsync();
+
+            var exporter = new NodeSetExporter(
+                loggerFactory.CreateLogger<NodeSetExporter>(),
+                loggerFactory,
+                client,
+                verbose: false);
+
+            var exportedFiles = await exporter.ExportAllNamespacesAsync(tempDir);
+
+            Assert.NotEmpty(exportedFiles);
+
+            // Inspect every NodeSet2 XML file: the placeholder defaults must
+            // not be present on any UAVariable element. The SDK only writes
+            // attributes that differ from the schema default, so seeing
+            // ValueRank="-2" or MinimumSamplingInterval="-1" indicates the bug
+            // has regressed (those are SDK in-memory defaults, not legal server
+            // values).
+            foreach (var xmlPath in exportedFiles.Values)
+            {
+                var xml = await File.ReadAllTextAsync(xmlPath);
+                Assert.DoesNotContain("ValueRank=\"-2\"", xml);
+                Assert.DoesNotContain("MinimumSamplingInterval=\"-1\"", xml);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DefaultExport_PreservesReferences()
+    {
+        // Regression test: the attribute-hydration pass must not strip the
+        // node references collected via Browse. Earlier versions replaced the
+        // cached INode with a freshly-read Node that had no references, which
+        // caused CoreClientUtils.ExportNodesToNodeSet2 to emit a NodeSet2 XML
+        // with no <References> blocks at all.
+        Assert.NotNull(_opcUaEndpoint);
+
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "opcua-refs-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var options = new OpcUaClientOptions
+            {
+                Endpoint = _opcUaEndpoint,
+                OutputDirectory = tempDir,
+                RetryCount = 3,
+                RetryDelaySeconds = 5
+            };
+
+            await using var client = await OpcUaClientBuilder
+                .Create(loggerFactory)
+                .FromOptions(options)
+                .TrustAllServerCertificates()
+                .ConnectAsync();
+
+            var exporter = new NodeSetExporter(
+                loggerFactory.CreateLogger<NodeSetExporter>(),
+                loggerFactory,
+                client,
+                verbose: false);
+
+            var exportedFiles = await exporter.ExportAllNamespacesAsync(tempDir);
+
+            Assert.NotEmpty(exportedFiles);
+
+            bool anyReferences = false;
+            foreach (var xmlPath in exportedFiles.Values)
+            {
+                var xml = await File.ReadAllTextAsync(xmlPath);
+                if (xml.Contains("<References>") || xml.Contains("<Reference "))
+                {
+                    anyReferences = true;
+                    break;
+                }
+            }
+
+            Assert.True(anyReferences,
+                "Expected at least one exported NodeSet2 file to contain <References>/<Reference> blocks.");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAttributes_ProducesJsonSidecarPerNamespace()
+    {
+        Assert.NotNull(_opcUaEndpoint);
+
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "opcua-attrs-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var options = new OpcUaClientOptions
+            {
+                Endpoint = _opcUaEndpoint,
+                OutputDirectory = tempDir,
+                RetryCount = 3,
+                RetryDelaySeconds = 5,
+                ExportAttributes = true
+            };
+
+            await using var client = await OpcUaClientBuilder
+                .Create(loggerFactory)
+                .FromOptions(options)
+                .TrustAllServerCertificates()
+                .ConnectAsync();
+
+            var exporter = new NodeSetExporter(
+                loggerFactory.CreateLogger<NodeSetExporter>(),
+                loggerFactory,
+                client,
+                verbose: false,
+                exportAttributes: true);
+
+            var exportedFiles = await exporter.ExportAllNamespacesAsync(tempDir);
+
+            Assert.NotEmpty(exportedFiles);
+
+            foreach (var xmlPath in exportedFiles.Values)
+            {
+                var sidecarPath = Path.ChangeExtension(xmlPath, null) + "_attributes.json";
+                Assert.True(File.Exists(sidecarPath),
+                    $"Expected JSON sidecar at {sidecarPath}");
+
+                using var stream = File.OpenRead(sidecarPath);
+                using var document = await JsonDocument.ParseAsync(stream);
+                var root = document.RootElement;
+
+                Assert.True(root.TryGetProperty("namespaceUri", out _));
+                Assert.True(root.TryGetProperty("namespaceIndex", out _));
+                Assert.True(root.TryGetProperty("exportedAt", out _));
+                Assert.True(root.TryGetProperty("nodes", out var nodes));
+                Assert.True(nodes.GetArrayLength() > 0);
+
+                // At least one Variable node should have a "Value" attribute key.
+                bool sawValueAttribute = false;
+                foreach (var node in nodes.EnumerateArray())
+                {
+                    if (node.GetProperty("nodeClass").GetString() == "Variable" &&
+                        node.GetProperty("attributes").TryGetProperty("Value", out var valueAttr) &&
+                        valueAttr.TryGetProperty("status", out _))
+                    {
+                        sawValueAttribute = true;
+                        break;
+                    }
+                }
+                Assert.True(sawValueAttribute,
+                    "Expected at least one Variable node with a 'Value' attribute in the sidecar.");
+            }
+
+            // Regression check: when --export-attributes is set, the NodeSet2
+            // XML itself must also contain <Value> elements (NodeSetExportOptions.ExportValues=true).
+            // Earlier versions wrote them only to the JSON sidecar.
+            bool sawValueElementInXml = false;
+            foreach (var xmlPath in exportedFiles.Values)
+            {
+                var xml = await File.ReadAllTextAsync(xmlPath);
+                if (xml.Contains("<Value>") || xml.Contains("<Value "))
+                {
+                    sawValueElementInXml = true;
+                    break;
+                }
+            }
+            Assert.True(sawValueElementInXml,
+                "Expected at least one exported NodeSet2 XML to contain a <Value> element when --export-attributes is set.");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SubtreeExport_WithExportAttributes_ProducesJsonSidecar()
+    {
+        Assert.NotNull(_opcUaEndpoint);
+
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "opcua-attrs-subtree-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var options = new OpcUaClientOptions
+            {
+                Endpoint = _opcUaEndpoint,
+                RetryCount = 3,
+                RetryDelaySeconds = 5,
+                ExportAttributes = true
+            };
+
+            await using var client = await OpcUaClientBuilder
+                .Create(loggerFactory)
+                .FromOptions(options)
+                .TrustAllServerCertificates()
+                .ConnectAsync();
+
+            var exporter = new NodeSetExporter(
+                loggerFactory.CreateLogger<NodeSetExporter>(),
+                loggerFactory,
+                client,
+                verbose: false,
+                exportAttributes: true);
+
+            var startNodeId = Opc.Ua.ExpandedNodeId.Parse(
+                "ns=4;i=5", client.Session.NamespaceUris);
+
+            var exportedFile = await exporter.ExportSubtreeAsync(startNodeId, tempDir);
+
+            Assert.True(File.Exists(exportedFile));
+            var sidecarPath = Path.ChangeExtension(exportedFile, null) + "_attributes.json";
+            Assert.True(File.Exists(sidecarPath),
+                $"Expected sidecar JSON at {sidecarPath}");
+
+            using var stream = File.OpenRead(sidecarPath);
+            using var document = await JsonDocument.ParseAsync(stream);
+            var root = document.RootElement;
+
+            Assert.Equal(4, root.GetProperty("namespaceIndex").GetInt32());
+            Assert.True(root.GetProperty("nodes").GetArrayLength() > 0);
+
+            // Regression check: <Value> must also appear in the NodeSet2 XML
+            // itself when --export-attributes is set, not only in the JSON sidecar.
+            var xml = await File.ReadAllTextAsync(exportedFile);
+            Assert.True(xml.Contains("<Value>") || xml.Contains("<Value "),
+                "Expected <Value> element in NodeSet2 XML subtree export with --export-attributes.");
         }
         finally
         {
