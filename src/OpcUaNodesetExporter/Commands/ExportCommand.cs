@@ -144,6 +144,13 @@ public class ExportCommand : RootCommand
             DefaultValueFactory = (_) => false
         };
 
+        var logFileOption = new Option<string?>(
+            name: "--log-file")
+        {
+            Description = "Optional path to a log file. All log output (Debug level when --verbose is set, otherwise Information) is appended to this file in addition to the console. Parent directories are created on demand.",
+            DefaultValueFactory = (_) => EnvironmentVariables.GetValue(EnvironmentVariables.LogFile)
+        };
+
         // Add all options
         Options.Add(endpointOption);
         Options.Add(securityModeOption);
@@ -161,6 +168,7 @@ public class ExportCommand : RootCommand
         Options.Add(verboseOption);
         Options.Add(startNodeOption);
         Options.Add(exportAttributesOption);
+        Options.Add(logFileOption);
 
         this.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -180,6 +188,7 @@ public class ExportCommand : RootCommand
             var verbose = parseResult.GetValue(verboseOption);
             var startNode = parseResult.GetValue(startNodeOption);
             var exportAttributes = parseResult.GetValue(exportAttributesOption);
+            var logFile = parseResult.GetValue(logFileOption);
 
             return await ExecuteAsync(
                 endpoint,
@@ -198,6 +207,7 @@ public class ExportCommand : RootCommand
                 verbose,
                 startNode,
                 exportAttributes,
+                logFile,
                 cancellationToken);
         });
     }
@@ -219,13 +229,19 @@ public class ExportCommand : RootCommand
         bool verbose,
         string? startNode,
         bool exportAttributes,
+        string? logFile,
         CancellationToken cancellationToken)
     {
         // Configure logging
+        var minLevel = verbose ? LogLevel.Debug : LogLevel.Information;
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
             builder.AddConsole();
-            builder.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
+            builder.SetMinimumLevel(minLevel);
+            if (!string.IsNullOrWhiteSpace(logFile))
+            {
+                builder.AddProvider(new Logging.FileLoggerProvider(logFile, minLevel));
+            }
         });
 
         var logger = loggerFactory.CreateLogger<ExportCommand>();
@@ -286,7 +302,8 @@ public class ExportCommand : RootCommand
                 RetryCount = retryCount,
                 RetryDelaySeconds = retryDelay,
                 Verbose = verbose,
-                ExportAttributes = exportAttributes
+                ExportAttributes = exportAttributes,
+                LogFile = logFile
             };
 
             // Validate authentication requirements
@@ -317,6 +334,10 @@ public class ExportCommand : RootCommand
             if (options.ExportAttributes)
             {
                 logger.LogInformation("Attribute export: enabled (Value reads + JSON sidecars)");
+            }
+            if (!string.IsNullOrWhiteSpace(options.LogFile))
+            {
+                logger.LogInformation("Log file: {LogFile}", Path.GetFullPath(options.LogFile));
             }
             logger.LogInformation("");
 

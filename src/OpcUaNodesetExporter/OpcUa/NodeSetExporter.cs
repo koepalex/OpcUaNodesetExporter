@@ -26,6 +26,20 @@ public class NodeSetExporter
     private readonly bool _exportAttributes;
 
     /// <summary>
+    /// Shared JSON serialization options for the attribute sidecar. Exposed as
+    /// <c>internal</c> so unit tests can verify behaviour against the exact
+    /// same options used in production (NaN/±Infinity handling in particular).
+    /// </summary>
+    internal static readonly JsonSerializerOptions SidecarJsonOptions = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+    };
+
+    /// <summary>
     /// Creates a new NodeSetExporter instance.
     /// </summary>
     /// <param name="logger">Logger instance.</param>
@@ -1219,13 +1233,7 @@ public class NodeSetExporter
             };
         }, "WriteAttributesJsonSidecar", cancellationToken).ConfigureAwait(false);
 
-        var jsonOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        var jsonOptions = SidecarJsonOptions;
 
         await using var stream = new FileStream(
             sidecarPath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -1372,9 +1380,12 @@ public class NodeSetExporter
                 case short or ushort:
                 case int or uint:
                 case long or ulong:
-                case float or double:
                 case decimal:
                     return v;
+                case float f:
+                    return float.IsFinite(f) ? f : FloatTokenFor(f);
+                case double d:
+                    return double.IsFinite(d) ? d : DoubleTokenFor(d);
                 case DateTime dt:
                     return dt.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
                 case Guid g:
@@ -1410,6 +1421,26 @@ public class NodeSetExporter
 
             // Fallback: stringify ExtensionObject and any other complex value.
             return v.ToString();
+        }
+
+        private static string DoubleTokenFor(double d)
+        {
+            if (double.IsNaN(d))
+            {
+                return "NaN";
+            }
+
+            return double.IsPositiveInfinity(d) ? "Infinity" : "-Infinity";
+        }
+
+        private static string FloatTokenFor(float f)
+        {
+            if (float.IsNaN(f))
+            {
+                return "NaN";
+            }
+
+            return float.IsPositiveInfinity(f) ? "Infinity" : "-Infinity";
         }
     }
 }

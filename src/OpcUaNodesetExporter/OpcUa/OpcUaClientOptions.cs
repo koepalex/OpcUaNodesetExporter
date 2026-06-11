@@ -63,6 +63,15 @@ public class OpcUaClientOptions
     public bool Verbose { get; set; }
 
     /// <summary>
+    /// Optional path to a file that should additionally receive all log
+    /// output. When <see cref="Verbose"/> is <c>true</c>, the file captures
+    /// <c>Debug</c>-level entries; otherwise it mirrors the console's
+    /// <c>Information</c> level. Parent directories are created on demand and
+    /// the file is opened in append mode.
+    /// </summary>
+    public string? LogFile { get; set; }
+
+    /// <summary>
     /// When true, the exporter reads all standard attributes (including the
     /// <c>Value</c> attribute for Variable and VariableType nodes) and writes
     /// a JSON sidecar file per produced NodeSet2 XML that records every

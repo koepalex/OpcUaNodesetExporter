@@ -105,4 +105,84 @@ public class AttributeDumpTests
         Assert.NotNull(dump.Value);
         Assert.IsType<string>(dump.Value);
     }
+
+    [Theory]
+    [InlineData(double.NaN, "NaN")]
+    [InlineData(double.PositiveInfinity, "Infinity")]
+    [InlineData(double.NegativeInfinity, "-Infinity")]
+    public void FromDataValue_NonFiniteDouble_IsConvertedToToken(double value, string expectedToken)
+    {
+        var dv = new DataValue(new Variant(value));
+
+        var dump = NodeSetExporter.AttributeDump.FromDataValue(dv);
+
+        Assert.Equal(expectedToken, dump.Value);
+    }
+
+    [Theory]
+    [InlineData(float.NaN, "NaN")]
+    [InlineData(float.PositiveInfinity, "Infinity")]
+    [InlineData(float.NegativeInfinity, "-Infinity")]
+    public void FromDataValue_NonFiniteFloat_IsConvertedToToken(float value, string expectedToken)
+    {
+        var dv = new DataValue(new Variant(value));
+
+        var dump = NodeSetExporter.AttributeDump.FromDataValue(dv);
+
+        Assert.Equal(expectedToken, dump.Value);
+    }
+
+    [Fact]
+    public void FromDataValue_FiniteDouble_RoundTripsAsDouble()
+    {
+        var dv = new DataValue(new Variant(3.14159));
+
+        var dump = NodeSetExporter.AttributeDump.FromDataValue(dv);
+
+        Assert.Equal(3.14159, Assert.IsType<double>(dump.Value));
+    }
+
+    [Fact]
+    public void FromDataValue_DoubleArrayWithNaN_ConvertsTokenElementWise()
+    {
+        var arr = new[] { 1.0, double.NaN, double.PositiveInfinity, double.NegativeInfinity, 2.5 };
+        var dv = new DataValue(new Variant(arr));
+
+        var dump = NodeSetExporter.AttributeDump.FromDataValue(dv);
+
+        var list = Assert.IsAssignableFrom<System.Collections.Generic.List<object?>>(dump.Value);
+        Assert.Equal(5, list.Count);
+        Assert.Equal(1.0, list[0]);
+        Assert.Equal("NaN", list[1]);
+        Assert.Equal("Infinity", list[2]);
+        Assert.Equal("-Infinity", list[3]);
+        Assert.Equal(2.5, list[4]);
+    }
+
+    [Fact]
+    public async Task Serialize_DumpWithNonFiniteValues_DoesNotThrow()
+    {
+        // Direct regression test for the CI failure: serialise an
+        // AttributeDump containing NaN / +-Infinity using the same options
+        // the production sidecar writer uses and assert no exception.
+        var dumpNan = NodeSetExporter.AttributeDump.FromDataValue(new DataValue(new Variant(double.NaN)));
+        var dumpInf = NodeSetExporter.AttributeDump.FromDataValue(new DataValue(new Variant(double.PositiveInfinity)));
+        var dumpNegInf = NodeSetExporter.AttributeDump.FromDataValue(new DataValue(new Variant(double.NegativeInfinity)));
+        var dumpArr = NodeSetExporter.AttributeDump.FromDataValue(
+            new DataValue(new Variant(new[] { 1.0, double.NaN, double.PositiveInfinity })));
+
+        var payload = new
+        {
+            Items = new[] { dumpNan, dumpInf, dumpNegInf, dumpArr },
+        };
+
+        await using var stream = new MemoryStream();
+        await System.Text.Json.JsonSerializer.SerializeAsync(
+            stream, payload, NodeSetExporter.SidecarJsonOptions);
+
+        var json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        Assert.Contains("\"NaN\"", json);
+        Assert.Contains("\"Infinity\"", json);
+        Assert.Contains("\"-Infinity\"", json);
+    }
 }

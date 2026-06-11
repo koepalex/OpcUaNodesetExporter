@@ -65,6 +65,9 @@ Options:
       --keep-alive-threshold <count>  Missed keep-alives before reconnect [default: 3]
       --export-attributes             Read all standard attributes (incl. Value) and write a JSON
                                       sidecar per NodeSet2 file with attribute values and status codes
+      --log-file <path>               Also append all log output to this file (Debug level when
+                                      --verbose is set, otherwise Information). Parent directories
+                                      are created on demand.
   -v, --verbose                       Enable verbose logging
   -?, -h, --help                      Show help and usage information
 ```
@@ -81,6 +84,7 @@ The following environment variables can be used to configure the tool:
 | `OPCUA_PASSWORD` | Password for authentication | `--password` |
 | `OPCUA_CERTIFICATE_PATH` | Path to client certificate | `--certificate-path` |
 | `OPCUA_CERTIFICATE_PASSWORD` | Client certificate password | `--certificate-password` |
+| `OPCUA_LOG_FILE` | Optional log file path | `--log-file` |
 
 ## Examples
 
@@ -345,6 +349,9 @@ dotnet test --filter "Category=Integration"
 ```bash
 # Enable verbose logging
 opcua-nodeset-export -e opc.tcp://server:4840 --verbose
+
+# Capture verbose log output to a file (in addition to the console)
+opcua-nodeset-export -e opc.tcp://server:4840 --verbose --log-file ./logs/export.log
 ```
 
 ### Certificate Errors
